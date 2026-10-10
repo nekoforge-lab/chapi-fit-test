@@ -45,3 +45,109 @@ nav button{font-size:12px;line-height:1.25;overflow-wrap:anywhere}
 .energy-card .energy-caution{font-size:11px;margin:8px 0}.energy-targets{background:#f5faf8;border-radius:13px;padding:11px 10px;margin:10px 0}.energy-targets .row{font-size:12px;gap:8px}.energy-targets .row b{white-space:nowrap}.energy-targets progress{margin:9px 0 4px}.energy-targets p{margin:2px 0}.energy-card details{margin-top:12px}
 @media(min-width:600px){.energy-card{padding:22px}.energy-comment-area{padding-right:105px}.energy-card .mascot{width:90px}.energy-dashboard{max-width:520px;margin-left:auto;margin-right:auto}.energy-metric strong{font-size:28px}.energy-donut-center strong{font-size:34px}}
 @media(max-width:360px){.energy-card{padding:13px 9px}.energy-dashboard{grid-template-columns:minmax(0,1fr) minmax(115px,1.65fr) minmax(0,1fr)}.energy-metric strong{font-size:16px}.energy-donut-center strong{font-size:18px}.energy-comment-area{padding-right:75px}.energy-card .mascot{width:68px}.energy-card .mascot-message{font-size:11px;padding:8px}}
+
+.meal-skip{margin:5px 0 12px}.meal-disabled{opacity:.48}.meal-disabled input{background:#e9edf0;color:#657483;cursor:not-allowed}.history-month{border:1px solid #c4d8e6;border-radius:16px;margin:12px 0;padding:6px 12px;background:#f7fbfe}.history-month>summary{font-size:16px;color:#285b80}.history-month>.history-entry{background:white}
+
+.monthly-balance-number{font-size:clamp(2rem,8vw,3rem);font-weight:800;line-height:1.2;margin:.55rem 0}.monthly-balance-number small{font-size:.43em;font-weight:650}
+
+.week-bars{margin:14px 0;display:grid;gap:8px}.week-row{display:grid;grid-template-columns:1.3em minmax(0,1fr) 100px;align-items:center;gap:8px;font-size:.83rem}.week-day{font-weight:700}.week-axis{display:grid;grid-template-columns:1fr 1fr;height:18px}.week-half{display:flex;align-items:center;min-width:0}.week-half.left{justify-content:flex-end;border-right:1px solid #8e9b9c}.week-half.right{justify-content:flex-start}.week-bar{height:12px;display:block;border-radius:4px;min-width:2px}.week-bar.negative{background:#328e83}.week-bar.positive{background:#d17c4e}.week-zero{height:5px;width:5px;background:#8e9b9c;border-radius:50%}.week-amount{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.week-amount.muted{opacity:.65}@media(max-width:370px){.week-row{grid-template-columns:1em minmax(0,1fr) 88px;font-size:.74rem;gap:5px}}
+
+/* Weekly balance numeric labels are SVG text and remain selectable via the bars. */
+
+/* Total expenditure ring: blue life energy + orange exercise energy. */
+.energy-donut.energy-breakdown-ready{background:conic-gradient(#ef9b43 0deg var(--exercise-angle),#3299bc var(--exercise-angle) 360deg)}
+.energy-donut.energy-breakdown-ready.energy-positive{transform:none}
+.energy-donut.energy-breakdown-ready.energy-positive .energy-donut-center{transform:none}
+.energy-donut.energy-breakdown-ready:before{inset:17%}
+
+.milestone-message{background:#f0f8fd;border:1px solid #b8d7e9;border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.7;margin:10px 0;color:#28516a}
+
+/* v3.5 mascot placement prototype: self-contained character, no overlap with data. */
+.energy-card{position:relative;overflow:visible}
+.energy-comment-area{min-height:106px;padding-right:98px;isolation:isolate}
+.energy-card .mascot{right:2px;top:50%;transform:translateY(-50%);width:84px;min-height:88px;max-height:102px;border-radius:22px;background:linear-gradient(155deg,#fff 4%,#d9f6f5 53%,#b7e5e4 100%);border:2px solid #4bb8b4;box-shadow:inset 0 2px 0 #ffffff,0 4px 0 #a5d7d5,0 7px 13px #236d7233;z-index:2;cursor:pointer;transition:transform .15s ease}
+.energy-card .mascot:active{transform:translateY(-50%) scale(.96)}
+.energy-card .mascot:focus-visible{outline:3px solid #177caa;outline-offset:3px}
+.energy-card .mascot-message{max-width:100%;border-radius:18px 18px 7px 18px;background:linear-gradient(180deg,#fff,#eefbff);box-shadow:0 4px 0 #d4eef5,0 7px 15px #317c9820}
+.energy-card .mascot-message:after{right:-9px;top:calc(50% - 8px)}
+@media(max-width:380px){.energy-comment-area{padding-right:79px}.energy-card .mascot{width:68px;min-height:82px}.energy-card .mascot-message{font-size:11px}}
+
+/* Reference artwork: keep character fully inside its own area; no fragile border occlusion. */
+.energy-comment-area{min-height:115px;padding-right:104px}
+.energy-card .mascot{overflow:visible;background:transparent;border:0;box-shadow:none;padding:0;width:96px;min-height:108px;max-height:none;right:0;top:50%;display:flex;gap:0;justify-content:center}
+.energy-card #mascotArt{display:block;width:100%;height:90px;object-fit:contain;filter:drop-shadow(0 3px 3px #287a8930)}
+.energy-card #mascotGrade{display:block;background:#e9f9fa;border:1px solid #a3d7d9;border-radius:12px;padding:1px 8px;line-height:1.5;white-space:nowrap}
+@media(max-width:380px){.energy-comment-area{padding-right:82px}.energy-card .mascot{width:78px}.energy-card #mascotArt{height:76px}}
+
+/* v3.5 mascot/bubble polish: non-overlapping layout; no fake frame contact. */
+.energy-card .energy-comment-area{
+  display:grid;grid-template-columns:minmax(0,1fr) 100px;
+  align-items:end;column-gap:9px;min-height:128px;
+  padding:9px 0 4px;margin:7px 0 5px;
+}
+.energy-card .mascot-message{
+  grid-column:1;align-self:center;min-width:0;
+  border:2px solid #65bfc9;border-radius:19px 19px 8px 19px;
+  padding:12px 13px;background:linear-gradient(160deg,#fff 10%,#eafaff 100%);
+  box-shadow:0 3px 0 #c4e8ef,0 7px 14px #1e748b1a;
+  font-weight:700;font-size:12px;line-height:1.65;
+}
+.energy-card .mascot-message:after{
+  right:-8px;top:50%;width:13px;height:13px;
+  background:#f0fbff;border-top:2px solid #65bfc9;border-right:2px solid #65bfc9;
+  transform:translateY(-50%) rotate(45deg);
+}
+.energy-card .mascot{
+  grid-column:2;position:relative;right:auto;top:auto;
+  transform:none;align-self:end;justify-self:center;
+  width:98px;min-height:0;max-height:none;gap:2px;
+  border:0;background:transparent;box-shadow:none;padding:0;
+  display:flex;flex-direction:column;align-items:center;cursor:pointer;
+}
+.energy-card .mascot:active{transform:scale(.97)}
+.energy-card #mascotArt{
+  display:block;width:98px;height:104px;object-fit:contain;object-position:center bottom;
+  filter:drop-shadow(0 4px 3px #236b7840);
+}
+.energy-card #mascotGrade{
+  font-size:10px;font-weight:800;line-height:1.5;
+  background:#e9f9fa;border:1px solid #9ad4d6;border-radius:999px;
+  padding:2px 9px;white-space:nowrap;
+}
+@media(max-width:380px){
+  .energy-card .energy-comment-area{grid-template-columns:minmax(0,1fr) 78px;column-gap:6px;min-height:112px}
+  .energy-card .mascot{width:78px}
+  .energy-card #mascotArt{width:78px;height:85px}
+  .energy-card .mascot-message{font-size:11px;padding:9px 10px}
+}
+@media(min-width:600px){
+  .energy-card .energy-comment-area{grid-template-columns:minmax(0,1fr) 112px;column-gap:14px}
+  .energy-card .mascot{width:110px}
+  .energy-card #mascotArt{width:110px;height:116px}
+}
+
+
+/* v3.5 soft teal glass finish: visual-only, no content overlays. */
+:root{--green:#176b75;--sage:#8bd8d5;--soft:#e8f9fa;--line:#c6e4e6;--muted:#527780}
+body{background:linear-gradient(180deg,#effbfc 0%,#f5fafc 46%,#f2f8fd 100%);background-attachment:fixed}
+.card{
+  position:relative;
+  background:linear-gradient(155deg,rgba(255,255,255,.99) 0%,#ffffff 53%,#f0fafb 100%);
+  border:1.5px solid #8bcfd0;
+  border-radius:22px;
+  box-shadow:inset 0 2px 0 rgba(255,255,255,.98),inset 0 -2px 0 rgba(80,172,177,.08),0 3px 0 rgba(78,165,170,.16),0 11px 24px rgba(33,103,117,.10);
+}
+.card.hero.energy-card{
+  background:linear-gradient(145deg,#ffffff 0%,#f4ffff 53%,#e8f7f8 100%);
+  border-color:#64bdbf;
+  box-shadow:inset 0 2px 0 #fff,inset 0 -3px 0 rgba(62,166,169,.11),0 4px 0 rgba(65,160,163,.18),0 13px 27px rgba(31,103,113,.13);
+}
+.card h2,.card h3{color:#24576a}
+.card .soft,.card .food-stat,.card .strength-total,.card .energy-targets{
+  border:1px solid #d5ecee;
+  background:linear-gradient(165deg,#f8ffff,#eef8fa);
+}
+button:not(.danger):not(.outline):not(.active){background:linear-gradient(180deg,#d8f3f1,#bce7e6);border-color:#a2d7d7;box-shadow:inset 0 1px 0 #fff,0 2px 0 #9acdcc}
+nav button:not(.active){background:linear-gradient(180deg,#e9f8f8,#d9edef);box-shadow:none}
+.energy-card .mascot-message{background:linear-gradient(160deg,#fff 12%,#eafaff 100%);box-shadow:inset 0 1px 0 #fff,0 3px 0 #c4e8ef,0 7px 14px #1e748b1a}
+@media(prefers-reduced-motion:reduce){button{transition:none}}
