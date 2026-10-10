@@ -12,7 +12,17 @@ function chooseDate(day){current=day;draft=C.normalizeDay(store.days[day]);saved
 function sync(){if(!draft)return;draft.weight=$('weight').value;draft.note=$('daynote').value;draft.restDay=$('restDay').checked;}
 function dayDirty(){sync();return JSON.stringify(draft)!==savedDraft}
 function changeDate(day){if(!C.date(day)){notice('日付を確認してください');return false}if(day!==current&&dayDirty()&&!confirm('未保存の変更があります。保存せず日付を切り替えますか？')){$('recordDate').value=current;return false}if(day!==current)chooseDate(day);return true}
-function saveDay(){sync();if(draft.weight!==''&&(!C.nonnegative(draft.weight)||Number(draft.weight)<1||Number(draft.weight)>500)){notice('体重は1〜500 kgで入力してください');return false}for(const [key] of C.meals)for(const f of ['kcal','p','f','c']){const v=draft.meals?.[key]?.[f];if(v!==''&&v!=null&&!C.nonnegative(v)){notice('食事は0以上の数値で入力してください');return false}}if(draft.strengthWorkout){for(const f of ['minutes','kcal']){const v=draft.strengthWorkout[f];if(v!==''&&v!=null&&!C.nonnegative(v)){notice('筋トレ全体の時間・消費カロリーは0以上にしてください');return false}}}for(const sess of draft.sessions)for(const it of sess.items){for(const f of ['minutes','km','steps','kcal','rounds'])if(it[f]!==''&&it[f]!=null&&!C.nonnegative(it[f])){notice('運動の数値は0以上にしてください');return false}for(const st of it.sets||[])for(const f of ['kg','reps','rir'])if(st[f]!==''&&st[f]!=null&&!C.nonnegative(st[f])){notice('セットの数値を確認してください');return false}}const next=C.clone(store);next.days[current]=C.clone(draft);if(!persist(next))return false;savedDraft=JSON.stringify(draft);notice('この日の記録と食事を保存しました');renderEnergy();renderWeek();if(activeTab==='calendar')renderCalendar();return true}
+function saveDay(){sync();if(draft.weight!==''&&(!C.nonnegative(draft.weight)||Number(draft.weight)<1||Number(draft.weight)>500)){notice('体重は1〜500 kgで入力してください');return false}for(const [key] of C.meals)for(const f of ['kcal','p','f','c']){const v=draft.meals?.[key]?.[f];if(v!==''&&v!=null&&!C.nonnegative(v)){notice('食事は0以上の数値で入力してください');return false}}if(draft.strengthWorkout){for(const f of ['minutes','kcal']){const v=draft.strengthWorkout[f];if(v!==''&&v!=null&&!C.nonnegative(v)){notice('筋トレ全体の時間・消費カロリーは0以上にしてください');return false}}}for(const sess of draft.sessions)for(const it of sess.items){for(const f of ['minutes','km','steps','kcal','rounds'])if(it[f]!==''&&it[f]!=null&&!C.nonnegative(it[f])){notice('運動の数値は0以上にしてください');return false}for(const st of it.sets||[])for(const f of ['kg','reps','rir'])if(st[f]!==''&&st[f]!=null&&!C.nonnegative(st[f])){notice('セットの数値を確認してください');return false}}// Flag unusually large newly-entered food values without rewriting older records.
+const originalMeals=C.normalizeDay(store.days[current]).meals;
+const unusual=[];
+for(const [meal,name] of C.meals)for(const [field,unit,limit] of [['kcal','kcal',10000],['p','g',1000],['f','g',1000],['c','g',1000]]){
+  const value=draft.meals?.[meal]?.[field];
+  if(value===''||value==null||Number(value)<=limit)continue;
+  if(String(value)===String(originalMeals?.[meal]?.[field]??''))continue;
+  unusual.push(`${name} ${field.toUpperCase()}：${value} ${unit}`);
+}
+if(unusual.length&&!confirm('食事に通常より大きな数値があります。入力ミスではありませんか？\n'+unusual.join('\n')+'\nこの数値で保存しますか？'))return false;
+const next=C.clone(store);next.days[current]=C.clone(draft);if(!persist(next))return false;savedDraft=JSON.stringify(draft);notice('この日の記録と食事を保存しました');renderEnergy();renderWeek();if(activeTab==='calendar')renderCalendar();return true}
 function switchTab(name){if(name===activeTab)return;if(activeTab==='settings'&&name!=='settings'&&settingsDirty&&!confirm('設定に未保存の変更があります。設定を保存せず移動しますか？'))return;sync();activeTab=name;for(const p of document.querySelectorAll('.page'))p.classList.toggle('hidden',p.id!==name);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));if(name==='record'){renderEnergy();renderWeek()}if(name==='food')renderFood();if(name==='calendar')renderCalendar();if(name==='progress')renderGraphs();if(name==='history')renderHistory();if(name==='templates')renderTemplates();if(name==='settings'){renderSettings();dirtySections.clear();settingsDirty=false}window.scrollTo?.({top:0,behavior:'smooth'})}
 function numberInput(label,value,change,{step='0.1',min='0',max,placeholder='未入力'}={}){const box=document.createElement('label');box.textContent=label;const input=document.createElement('input');input.type='number';input.inputMode=step==='1'?'numeric':'decimal';input.min=min;input.step=step;if(max)input.max=max;input.value=value??'';input.placeholder=placeholder;input.oninput=()=>change(input.value);box.append(input);return box}
 function textInput(label,value,change,area=false){const box=document.createElement('label');box.textContent=label;const input=document.createElement(area?'textarea':'input');input.value=value??'';input.oninput=()=>change(input.value);box.append(input);return box}
@@ -77,7 +87,7 @@ function mascotAssessment(e,adjusted,rest=false){
 function renderMascot(e,adjusted){
  const m=mascotAssessment(e,adjusted,!!draft.restDay);
  $('mascotFace').textContent=m.face;
- $('mascotArt').src='./genkun-'+({'満点':0,'良い':1,'並':2,'良くない':3,'悪い':4}[m.grade]??2)+'.png';
+ $('mascotArt').src='./genkun-'+({'満点':0,'良い':1,'並':2,'良くない':3,'悪い':4}[m.grade]??2)+'.png?v=3.5-coach2-fullbody';
  $('mascotGrade').textContent=m.grade;
  const bubble=$('mascotMessage');bubble.replaceChildren();
  const heading=document.createElement('strong');heading.className='mascot-coach-title';heading.textContent=m.title;
