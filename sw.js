@@ -1,5 +1,5 @@
-const CACHE='chapi-fit-shell-v35-teal-gloss1-20261010';
-const SHELL=['./','./index.html','./styles.css?v=3.5-teal-gloss1','./core.js?v=3.5-teal-gloss1','./app.js?v=3.5-teal-gloss1','./manifest.webmanifest','./apple-touch-icon.png?v=3.5-teal-gloss1','./favicon-32.png?v=3.5-teal-gloss1','./genkun-0.png','./genkun-1.png','./genkun-2.png','./genkun-3.png','./genkun-4.png','./icon-192.png','./icon-512.png','./icon-maskable-512.png'];
+const CACHE='chapi-fit-shell-v35-fullbody1-20261010';
+const SHELL=['./','./index.html','./styles.css?v=3.5-fullbody1','./core.js?v=3.5-fullbody1','./app.js?v=3.5-fullbody1','./manifest.webmanifest','./apple-touch-icon.png?v=3.5-fullbody1','./favicon-32.png?v=3.5-fullbody1','./genkun-0.png','./genkun-1.png','./genkun-2.png','./genkun-3.png','./genkun-4.png','./icon-192.png','./icon-512.png','./icon-maskable-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)))});
 // Activate after old tabs close: do not swap code underneath unsaved input.
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('chapi-fit-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

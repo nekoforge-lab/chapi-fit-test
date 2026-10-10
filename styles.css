@@ -151,3 +151,9 @@ button:not(.danger):not(.outline):not(.active){background:linear-gradient(180deg
 nav button:not(.active){background:linear-gradient(180deg,#e9f8f8,#d9edef);box-shadow:none}
 .energy-card .mascot-message{background:linear-gradient(160deg,#fff 12%,#eafaff 100%);box-shadow:inset 0 1px 0 #fff,0 3px 0 #c4e8ef,0 7px 14px #1e748b1a}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
+
+/* Full-body Genkun artwork: preserve complete poses and transparent edges. */
+.energy-card #mascotArt{height:119px;object-fit:contain;object-position:center bottom}
+.energy-card .energy-comment-area{min-height:143px}
+@media(max-width:380px){.energy-card #mascotArt{height:101px}.energy-card .energy-comment-area{min-height:125px}}
+@media(min-width:600px){.energy-card #mascotArt{height:137px}.energy-card .energy-comment-area{min-height:160px}}
