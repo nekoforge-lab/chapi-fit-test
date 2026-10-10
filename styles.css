@@ -157,3 +157,10 @@ nav button:not(.active){background:linear-gradient(180deg,#e9f8f8,#d9edef);box-s
 .energy-card .energy-comment-area{min-height:143px}
 @media(max-width:380px){.energy-card #mascotArt{height:101px}.energy-card .energy-comment-area{min-height:125px}}
 @media(min-width:600px){.energy-card #mascotArt{height:137px}.energy-card .energy-comment-area{min-height:160px}}
+
+/* v3.5 Genkun coach: two-level readable advice bubble */
+.energy-card .energy-comment-area{min-height:172px;align-items:center}
+.energy-card .mascot-message{font-weight:400;font-size:12px;line-height:1.55;padding:14px 13px;display:flex;flex-direction:column;gap:8px}
+.energy-card .mascot-coach-title{display:block;font-size:14px;line-height:1.45;font-weight:800;color:#18566c}
+.energy-card .mascot-coach-advice{display:block;font-size:12px;line-height:1.6;font-weight:400;color:#365e6b}
+@media(max-width:380px){.energy-card .energy-comment-area{min-height:180px}.energy-card .mascot-message{padding:11px 10px}.energy-card .mascot-coach-title{font-size:13px}.energy-card .mascot-coach-advice{font-size:11px}}
