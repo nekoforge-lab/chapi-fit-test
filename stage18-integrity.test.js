@@ -34,6 +34,6 @@ test('failed invalid replacement leaves original byte-for-byte intact',()=>{
 });
 test('existing release assertions require a label not present in development build',()=>{
  const html=fs.readFileSync('index.html','utf8');
- assert.match(html,/<small class="build-label">v3\.9<\/small>/);
+ assert.match(html,/<small class="build-label">v3\.9 Stage 32<\/small>/);
  assert.doesNotMatch(html,/v3\.9 正規版/);
 });

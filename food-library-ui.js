@@ -17,5 +17,9 @@ function change(fn){if(typeof window.ChapiFoodLibraryCommit!=='function')throw E
 $('libKind').addEventListener('change',kindChange);$('libReset').addEventListener('click',()=>{$('libKind').disabled=false;reset();msg('入力をクリアしました');});$('libForm').addEventListener('submit',e=>{e.preventDefault();try{change(data=>S.save(data,entry()));$('libKind').disabled=false;reset();render();msg('ライブラリに保存しました');}catch(err){msg('保存できません: '+err.message);}});
 for(const id of ['libSearch','libKindFilter','libCategoryFilter'])$(id).addEventListener(id==='libSearch'?'input':'change',render);
 $('libResults').addEventListener('click',e=>{const btn=e.target.closest('button[data-action]');if(!btn)return;try{const {data}=get(),item=S.snapshot(data,btn.dataset.id);if(btn.dataset.action==='edit'){edit(item);msg('編集中: '+item.name);}else if(confirm('「'+item.name+'」をライブラリから削除しますか？\n過去の食事記録は削除しません。')){change(d=>S.remove(d,item.id));render();msg('ライブラリから削除しました');}}catch(err){msg('操作できません: '+err.message);}});
-$('foodLibraryDetails').addEventListener('toggle',()=>{if($('foodLibraryDetails').open)render();});kindChange();
+const dialog=$('foodLibraryDialog');
+$('foodLibraryOpen').addEventListener('click',()=>{render();dialog.showModal();});
+$('foodLibraryClose').addEventListener('click',()=>dialog.close());
+dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});
+kindChange();
 })();

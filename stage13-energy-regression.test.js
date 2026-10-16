@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const a=fs.readFileSync('app.js','utf8'),h=fs.readFileSync('index.html','utf8'),c=fs.readFileSync('styles.css','utf8'),sw=fs.readFileSync('sw.js','utf8');
 assert.match(a,/VERSION='3\.8\.20'/);
-assert.match(h,/<small class="build-label">v3\.9<\/small>/);
+assert.match(h,/<small class="build-label">v3\.9 Stage 32<\/small>/);
 assert.doesNotMatch(h,/<small class="build-label">v3\.9 正規版<\/small>/);
 assert.match(sw,/v39-strength07/);
 assert.match(h,/v=3\.8\.20-energy-labels/);
