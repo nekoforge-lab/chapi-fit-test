@@ -51,6 +51,13 @@ function persist(next=store){
   notice('保存を中止しました：'+e.message);return false;
  }
 }
+// Stage 30: library writes use the same guarded persistence path as daily records.
+window.ChapiFoodLibraryCommit = function(mutator){
+ if(blocked)throw Error('保存が停止されています');
+ const next=mutator(C.clone(store));
+ if(!persist(next))throw Error('保存処理が中止されました。通知を確認してください');
+ return true;
+};
 // Do not overwrite storage at startup: migration is committed only on an explicit save.
 // Stage 1 library: initialize in memory; persist only after an explicit user action.
 const BUILTIN_LIBRARY_NAMES={bench:['DBベンチプレス','ダンベルベンチプレス'],press:['DBショルダープレス','ダンベルショルダープレス'],squat:['DBスクワット','ダンベルスクワット'],rdl:['DB RDL','ダンベルルーマニアンデッドリフト'],shrug:['DBシュラッグ','ダンベルシュラッグ']};

@@ -6,7 +6,7 @@ import os,sys,json,subprocess,datetime,traceback
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 ART=ROOT/'artifacts';ART.mkdir(exist_ok=True)
-COMMANDS=[('node-unit',['node','--test',*sorted(p.name for p in (ROOT).glob('*.test.js'))],ROOT),('browser-smoke',[sys.executable,'browser_smoke.py'],ROOT),('browser-regression',[sys.executable,'browser_regression.py'],ROOT),('browser-extended',[sys.executable,'browser_extended.py'],ROOT),('browser-structured',[sys.executable,'browser_structured.py'],ROOT)]
+COMMANDS=[('node-unit',['node','--test',*sorted(p.name for p in (ROOT).glob('*.test.js'))],ROOT),('browser-smoke',[sys.executable,'browser_smoke.py'],ROOT),('browser-regression',[sys.executable,'browser_regression.py'],ROOT),('browser-extended',[sys.executable,'browser_extended.py'],ROOT),('browser-structured',[sys.executable,'browser_structured.py'],ROOT),('browser-library',[sys.executable,'browser_library.py'],ROOT)]
 summary={'started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'results':[]}
 for name,cmd,cwd in COMMANDS:
  print(f'\n=== {name} ===',flush=True)

@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict');const lib=require('./food-library.js');
+const n={kcal:120,p:10,f:3,c:13};
+const a=lib.ingredient({id:'i1',name:' 鶏むね肉 ',categories:['肉類','鶏肉'],amount:10.1,unit:'g',nutrition:n});
+assert.equal(a.name,'鶏むね肉');assert.deepEqual(a.salt,{status:'unknown'});
+assert.throws(()=>lib.ingredient({id:'i2',name:'肉',amount:10.11,nutrition:n}),/0.1/);
+const d=lib.dish({id:'d1',name:'親子丼',category:'家庭料理',dishType:'丼',nutrition:n,ingredients:[a],salt:{value:1.5,source:'estimated'}});
+assert.equal(d.salt.value,1.5);assert.throws(()=>lib.dish({id:'d2',name:'弁当',category:'その他',nutrition:n}),/カテゴリ/);
+let items=lib.upsert([],a);items=lib.upsert(items,d);
+assert.equal(lib.search(items,{query:'親子',kind:'dish'}).length,1);
+assert.equal(lib.search(items,{category:'鶏肉',kind:'ingredient'}).length,1);
+assert.equal(lib.search(items,{category:'外食'}).length,0);
+const snap=lib.dailySnapshot(d);const revised=lib.upsert(items,{...d,name:'改訂親子丼'});assert.equal(snap.name,'親子丼');assert.equal(revised[1].name,'改訂親子丼');assert.equal(items[1].name,'親子丼');
+const result=lib.search(items,{query:'丼'});result[0].ingredients[0].name='改ざん';assert.equal(items[1].ingredients[0].name,'鶏むね肉');
+assert.throws(()=>lib.upsert(items,{...d,id:'i1'}),/競合/);
+assert.throws(()=>lib.ingredient({id:'i3',name:'不明',nutrition:{...n,kcal:NaN}}),/kcal/);
+console.log('food-library foundation checks passed');
