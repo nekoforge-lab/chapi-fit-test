@@ -1,0 +1,10 @@
+const test=require('node:test');const assert=require('node:assert/strict');
+const fs=require('node:fs');const path=require('node:path');
+const B=require('./food-totals-bridge.js');
+const app=fs.readFileSync(path.join(__dirname,'app.js'),'utf8');
+test('追加枠保存は明細と計算モードを保持する',()=>{assert.match(app,/totalMode:values\.totalMode,manualTotal:C\.clone\(values\.total\),entries:C\.clone\(values\.entries\)/)});
+test('食事画面に料理・食材の追加操作がある',()=>{assert.match(app,/＋ 食材/);assert.match(app,/＋ 料理/);assert.match(app,/材料の合計/)});
+test('料理推定を採用すると材料を二重計上しない',()=>{const dish={kind:'dish',calculationMode:'estimate',estimate:{kcal:300,p:20,f:10,c:25},ingredients:[{kcal:120,p:5,f:3,c:12}]};assert.equal(B.adopted({totalMode:'auto',entries:[dish]}).kcal,300)});
+test('料理を材料合計へ切り替えると材料だけ計上する',()=>{const dish={kind:'dish',calculationMode:'ingredients',estimate:{kcal:300,p:20,f:10,c:25},ingredients:[{kcal:120,p:5,f:3,c:12}]};assert.equal(B.adopted({totalMode:'auto',entries:[dish]}).kcal,120)});
+test('食事の手動合計は明細に優先する',()=>{const meal={totalMode:'manual',manualTotal:{kcal:450,p:22,f:14,c:44},entries:[{kind:'ingredient',kcal:100,p:5,f:2,c:10}]};assert.equal(B.adopted(meal).kcal,450)});
+test('栄養値の不明をゼロに変換しない',()=>{assert.equal(B.adopted({totalMode:'auto',entries:[{kind:'ingredient',kcal:100,p:null,f:2,c:10}]}).p,null)});

@@ -1,0 +1,9 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {merge}=require('./food-draft-merge');
+const clone=x=>JSON.parse(JSON.stringify(x));
+const base={weight:'100',meals:{breakfast:{kcal:100},lunch:{kcal:200}},foodV2:{format:'chapi-food-day-2-draft',slots:[{slotId:'breakfast',slotName:'朝食',meal:{format:'chapi-food-record-2-draft',entries:[]}}]}};
+test('day-wide save retains separately committed structured edit and projection',()=>{const old=clone(base),draft=clone(base),latest=clone(base);draft.weight='99';latest.foodV2.slots[0].meal.entries.push({name:'卵'});latest.meals.breakfast.kcal=150;const out=merge(draft,old,latest);assert.equal(out.weight,'99');assert.deepEqual(out.foodV2,latest.foodV2);assert.deepEqual(out.meals.breakfast,latest.meals.breakfast);assert.equal(out.meals.lunch.kcal,200);});
+test('concurrent edit to same meal refuses destructive merge',()=>{const old=clone(base),draft=clone(base),latest=clone(base);draft.meals.breakfast.kcal=120;latest.meals.breakfast.kcal=150;assert.throws(()=>merge(draft,old,latest),/breakfast/);});
+test('separately committed extra slot is retained',()=>{const old=clone(base),draft=clone(base),latest=clone(base);latest.foodV2.slots.push({slotId:'extra-1',slotName:'夜食',meal:null});assert.deepEqual(merge(draft,old,latest).foodV2,latest.foodV2);});
+test('conflicting structured edits are rejected and inputs not mutated',()=>{const old=clone(base),draft=clone(base),latest=clone(base);draft.foodV2.slots[0].meal.entries.push({name:'米'});latest.foodV2.slots[0].meal.entries.push({name:'卵'});const before=JSON.stringify([old,draft,latest]);assert.throws(()=>merge(draft,old,latest));assert.equal(JSON.stringify([old,draft,latest]),before);});
+test('unchanged draft is unchanged when no concurrent save',()=>{const old=clone(base),draft=clone(base);draft.weight='98';assert.deepEqual(merge(draft,old,old),draft);});

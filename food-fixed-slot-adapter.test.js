@@ -1,0 +1,11 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const A=require('./food-fixed-slot-adapter');
+const settings=[{id:'breakfast',name:'朝食',order:0,active:true},{id:'lunch',name:'昼食',order:1,active:true},{id:'dinner',name:'夕食',order:2,active:true},{id:'snack',name:'間食',order:3,active:true}];
+const base=()=>({meals:{breakfast:{kcal:300,p:20,f:10,c:30,note:'old',custom:'keep'},lunch:{kcal:400,p:25,f:12,c:40}},other:'retain'});
+const record={totalMode:'auto',entries:[{kind:'ingredient',name:'ご飯',kcal:150,p:3,f:1,c:32}],note:'new'};
+test('fixed breakfast detailed record and legacy total are synchronized',()=>{const before=base(),out=A.setFixedMeal(before,true,settings,'breakfast',record);assert.equal(out.meals.breakfast.kcal,150);assert.equal(out.meals.breakfast.custom,'keep');assert.equal(out.foodV2.slots.find(s=>s.slotId==='breakfast').meal.entries[0].name,'ご飯');assert.deepEqual(before,base())});
+test('other meals and unrelated fields remain untouched',()=>{const out=A.setFixedMeal(base(),true,settings,'breakfast',record);assert.equal(out.meals.lunch.kcal,400);assert.equal(out.other,'retain')});
+test('unknown nutrients remain empty rather than zero in legacy',()=>{const out=A.setFixedMeal(base(),true,settings,'breakfast',{totalMode:'auto',entries:[{kind:'ingredient',name:'食品',kcal:100,p:null,f:null,c:null}]});assert.equal(out.meals.breakfast.p,'');assert.equal(out.meals.breakfast.kcal,100)});
+test('manual total overrides details without double counting',()=>{const out=A.setFixedMeal(base(),true,settings,'breakfast',{...record,totalMode:'manual',manualTotal:{kcal:230,p:12,f:5,c:31}});assert.equal(out.meals.breakfast.kcal,230)});
+test('rejects extra slot IDs',()=>assert.throws(()=>A.setFixedMeal(base(),true,settings,'snack-new',record)));
+test('skipped meal has zero totals while preserving entries',()=>{const out=A.setFixedMeal(base(),true,settings,'breakfast',{...record,skipped:true});assert.equal(out.meals.breakfast.kcal,0);assert.equal(out.foodV2.slots.find(s=>s.slotId==='breakfast').meal.entries.length,1)});

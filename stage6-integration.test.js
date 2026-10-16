@@ -1,0 +1,7 @@
+const assert=require('node:assert/strict'),test=require('node:test'),fs=require('node:fs');
+const C=require('./core'),M=require('./food-migration'),S=require('./food-storage'),F=require('./food-slots');
+const app=fs.readFileSync(__dirname+'/app.js','utf8'),html=fs.readFileSync(__dirname+'/index.html','utf8');
+test('本体の保存と復元は新しい検証関数に接続',()=>{assert.match(app,/const plan=FS\.prepare\(/);assert.match(app,/FS\.parseBackup\(/);assert.match(app,/lastSavedRaw/);assert.match(app,/before-food-v39/)});
+test('新モジュールは本体より先に読み込まれる',()=>{for(const file of ['food-model.js','food-totals-bridge.js','food-slots.js','food-migration.js','food-storage.js'])assert(html.indexOf(file)>0&&html.indexOf(file)<html.indexOf('app.js'))});
+test('旧記録を変えず新形式スナップショットを付与',()=>{const x=C.fresh();x.days['2026-10-15']={meals:{breakfast:{kcal:100,p:10},lunch:{skipped:true}},sessions:[]};const before=C.foodTotals(x.days['2026-10-15']);const p=S.prepare(x,F,M);assert.deepEqual(C.foodTotals(p.next.days['2026-10-15']),before);assert.deepEqual(p.next.days['2026-10-15'].meals,x.days['2026-10-15'].meals)});
+test('旧食事を編集した場合は日別スナップショットを再生成できる',()=>{const x=C.fresh();x.days['2026-10-15']={meals:{breakfast:{kcal:100,p:10}},sessions:[]};const first=S.prepare(x,F,M).next;const changed=structuredClone(first);changed.days['2026-10-15'].meals.breakfast.kcal=250;delete changed.days['2026-10-15'].foodV2;const second=S.prepare(changed,F,M).next;assert.equal(second.days['2026-10-15'].foodV2.slots[0].meal.manualTotal.kcal,250);assert.equal(C.foodTotals(second.days['2026-10-15']).total.kcal,250)});

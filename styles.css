@@ -422,3 +422,10 @@ body > #backToTop.back-to-top[hidden] {display:none!important;}
   white-space:normal;max-width:100%;text-align:center;
   overflow-wrap:anywhere;line-break:strict;
 }
+
+/* v3.9 food entry editor */
+.food-entry-editor{margin:.8rem 0;padding:.6rem;border:1px solid var(--line,#d5e2e6);border-radius:12px}
+.food-entry-row{padding:.55rem 0;border-top:1px solid #dce5e9;display:flex;gap:.4rem;flex-wrap:wrap;align-items:end}
+.food-entry-row>label{flex:1 1 105px;min-width:90px}
+.food-entry-row>select{max-width:100%}
+.food-entry-nested{flex:1 1 100%;padding-left:.6rem;border-left:2px solid #a8c5c9}

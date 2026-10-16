@@ -1,0 +1,11 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');
+const FO=require('./food-fixed-operations');
+const settings=[{id:'breakfast',name:'朝食',order:0,active:true},{id:'lunch',name:'昼食',order:1,active:true},{id:'dinner',name:'夕食',order:2,active:true},{id:'snack',name:'間食',order:3,active:true}];
+const meal={format:'chapi-food-record-2-draft',totalMode:'manual',manualTotal:{kcal:240,p:12,f:8,c:30},entries:[{kind:'ingredient',name:'豆腐',kcal:100,p:10,f:5,c:2}],skipped:false,note:'テスト'};
+const day=()=>({meals:{breakfast:{kcal:240,p:12,f:8,c:30,note:'テスト'},lunch:{kcal:500,p:20,f:20,c:50}},foodV2:{format:'chapi-food-day-2-draft',slots:settings.map(s=>({slotId:s.id,slotName:s.name,slotOrder:s.order,meal:s.id==='breakfast'?structuredClone(meal):null}))}});
+test('delete clears structured and legacy without touching another meal',()=>{const x=day(),y=FO.apply(x,true,settings,'breakfast',null);assert.equal(y.foodV2.slots[0].meal,null);assert.deepEqual(y.meals.breakfast,{});assert.deepEqual(y.meals.lunch,x.meals.lunch);assert.deepEqual(x.foodV2.slots[0].meal,meal)});
+test('copy retains structured detail and target slot name/order',()=>{const x=day(),y=day();y.foodV2.slots[0].slotName='朝ごはん';const z=FO.copy(x,y,true,true,settings,'breakfast');assert.deepEqual(z.foodV2.slots[0].meal,meal);assert.equal(z.foodV2.slots[0].slotName,'朝ごはん');assert.notEqual(z.foodV2.slots[0].meal,x.foodV2.slots[0].meal)});
+test('legacy AI replacement clears structured details',()=>{const y=FO.apply(day(),true,settings,'breakfast',{legacy:{kcal:110,p:2,f:1,c:22,aiItems:[{name:'パン'}]}});assert.equal(y.foodV2.slots[0].meal,null);assert.equal(y.meals.breakfast.kcal,110)});
+test('rejected operation does not mutate source',()=>{const x=day(),before=JSON.stringify(x);assert.throws(()=>FO.apply(x,true,settings,'unknown',null));assert.equal(JSON.stringify(x),before)});
+test('skipped and missing are different',()=>{const x=day();assert.equal(FO.present(x,'breakfast'),true);const y=FO.apply(x,true,settings,'breakfast',{legacy:{skipped:true}});assert.equal(FO.present(y,'breakfast'),true);const z=FO.apply(y,true,settings,'breakfast',null);assert.equal(FO.present(z,'breakfast'),false)});
+test('copy from missing record is rejected',()=>{const x=day();assert.throws(()=>FO.copy(x,x,true,true,settings,'snack'),/未記録/)});
