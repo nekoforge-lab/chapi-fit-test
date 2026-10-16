@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict');
+const m=require('./food-migration.js');const core=require('./core.js');
+const sample=core.fresh();sample.days['2026-10-15']={weight:114.2,meals:{breakfast:{kcal:400,p:25,f:10,c:50,skipped:false,note:'朝'},snack:{skipped:true},dinner:{kcal:850,p:'',f:20,c:90,customFlag:123}},sessions:[],custom:{a:1}};
+const before=JSON.stringify(sample);const oldTotals=core.foodTotals(sample.days['2026-10-15']);
+const out=m.convertStore(sample);
+assert.equal(JSON.stringify(sample),before,'original must not mutate');
+assert.equal(JSON.stringify(out.days['2026-10-15'].meals),JSON.stringify(sample.days['2026-10-15'].meals));
+assert.deepEqual(core.foodTotals(out.days['2026-10-15']),oldTotals,'legacy energy totals unchanged');
+assert.equal(out.days['2026-10-15'].foodV2.slots.length,3,'no phantom slots');
+assert.equal(out.days['2026-10-15'].foodV2.slots[2].meal.skipped,true);
+assert.equal(out.days['2026-10-15'].foodV2.slots[1].meal.manualTotal.p,null,'unknown is not zero');
+assert.equal(out.days['2026-10-15'].foodV2.slots[1].meal.legacy.customFlag,123);
+assert.equal(JSON.stringify(m.convertStore(out)),JSON.stringify(out),'idempotent');
+assert.equal(m.audit(sample,out).ok,true);
+assert.throws(()=>m.convertStore({days:{'bad':{}}}),/日付/);
+assert.throws(()=>m.convertMeal(null),/不正/);
+console.log('food-migration: 10 checks passed');

@@ -1,0 +1,10 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const C=require('./core'),S=require('./food-storage'),SL=require('./food-slots'),M=require('./food-migration');
+const seed=()=>{const s=C.fresh();s.days['2026-10-15']={meals:{breakfast:{kcal:400,p:20,f:10,c:40}},sessions:[]};return S.prepare(s,SL,M).next};
+test('旧記録の移行後も合計と原本を維持',()=>{const x=seed();assert.equal(C.foodTotals(x.days['2026-10-15']).total.kcal,400);assert.equal(x.days['2026-10-15'].meals.breakfast.kcal,400)});
+test('バックアップからの復元で食事枠保持',()=>{const x=seed();const y=S.parseBackup(JSON.stringify({app:'chapi-training',store:x}),C,SL);assert.deepEqual(y.days['2026-10-15'].foodV2,x.days['2026-10-15'].foodV2)});
+test('存在しない日付は拒否',()=>{const x=seed();x.days['2026-02-30']=x.days['2026-10-15'];assert.throws(()=>S.validate(x,SL),/日付/)});
+test('食事レコード形式の破損は拒否',()=>{const x=seed();x.days['2026-10-15'].foodV2.slots[0].meal.format='broken';assert.throws(()=>S.validate(x,SL),/形式/)});
+test('負の食事合計は拒否',()=>{const x=seed();x.days['2026-10-15'].foodV2.slots[0].meal.manualTotal.kcal=-1;assert.throws(()=>S.validate(x,SL),/数値/)});
+test('明細が配列以外なら拒否',()=>{const x=seed();x.days['2026-10-15'].foodV2.slots[0].meal.entries={};assert.throws(()=>S.validate(x,SL),/明細/)});
+test('原本を破壊しない',()=>{const x=C.fresh();x.days['2026-10-15']={meals:{breakfast:{kcal:120}},sessions:[]};const before=JSON.stringify(x);S.prepare(x,SL,M);assert.equal(JSON.stringify(x),before)});

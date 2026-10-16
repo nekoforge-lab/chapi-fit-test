@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');const m=require('./food-model.js');
+const nutrients=(kcal,p,f,c)=>({kcal,p,f,c});
+assert.deepEqual(m.adoptedMeal({entries:[{kind:'ingredient',...nutrients(100,5,3,15)},{kind:'ingredient',...nutrients(50,2,1,8)}]}),nutrients(150,7,4,23));
+assert.deepEqual(m.adoptedMeal({totalMode:'manual',manualTotal:nutrients(900,40,30,100),entries:[{...nutrients(50,2,1,8)}]}),nutrients(900,40,30,100));
+assert.deepEqual(m.adoptedDish({kind:'dish',calculationMode:'estimate',estimate:nutrients(500,20,15,70),ingredients:[nutrients(100,4,3,12)]}),nutrients(500,20,15,70));
+assert.deepEqual(m.adoptedDish({kind:'dish',calculationMode:'ingredients',estimate:nutrients(500,20,15,70),ingredients:[nutrients(100,4,3,12)]}),nutrients(100,4,3,12));
+assert.deepEqual(m.adoptedMeal({skipped:true,totalMode:'manual',manualTotal:nutrients(500,20,15,70)}),nutrients(0,0,0,0));
+assert.throws(()=>m.adoptedMeal({totalMode:'manual',manualTotal:{kcal:100}}),/不完全/);
+assert.equal(m.isValue(null),false);assert.equal(m.isValue(''),false);assert.equal(m.isValue(0),true);
+const slot={id:'snack-7',name:'トレ前',order:1};const meal={entries:[{kcal:100}]};const snap=m.snapshotSlot(slot,meal);slot.name='補食';meal.entries[0].kcal=200;assert.equal(snap.slotName,'トレ前');assert.equal(snap.meal.entries[0].kcal,100);
+console.log('food-model: 8 checks passed');

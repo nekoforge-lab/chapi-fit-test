@@ -1,12 +1,56 @@
 (()=>{'use strict';
+const FS=ChapiFoodStorage,FM=ChapiFoodMigration,SL=ChapiFoodSlots,DS=ChapiFoodDaySlots,FA=ChapiFixedSlotAdapter,FO=ChapiFixedOperations,FDM=ChapiFoodDraftMerge;
 const W=ChapiWorkoutRecords,C=ChapiCore,KEY='chapi-training-v2',OLDKEY='chapi-training-v1',BACKUP='chapi-training-v2-before-v3',RESTORE='chapi-training-before-restore',VERSION='3.8.20';
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2),today=()=>C.iso(new Date()),round=(n,d=0)=>Number(n).toLocaleString('ja-JP',{maximumFractionDigits:d}),signed=n=>(n>0?'+':n===0?'±':'')+round(n),color=n=>n===null?'':n<0?'negative':n>0?'positive':'neutral';
+let foodSlotSettingsDraft=null;
 let store,blocked=false,recoveryExported=false,externalConflict=false,rawOriginal='',current=today(),draft,savedDraft='',activeTab='record',month=current.slice(0,7)+'-01',selectedDetail=current,editing=null,targetsDraft=null,goalDraft=null,graphMode='weight',graphWeek=current,noticeTimer,settingsDirty=false,loadedToday=today();
 const dirtySections=new Set();function markDirty(section){dirtySections.add(section);settingsDirty=true}function cleanSection(section){dirtySections.delete(section);settingsDirty=dirtySections.size>0}
 function notice(s){$('notice').textContent=s;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>{$('notice').textContent=''},6000)}
 function download(obj,name){const a=document.createElement('a'),u=URL.createObjectURL(new Blob([typeof obj==='string'?obj:JSON.stringify(obj,null,2)],{type:'application/json'}));a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),5000)}
 try{rawOriginal=localStorage.getItem(KEY)||'';const old=localStorage.getItem(OLDKEY);store=rawOriginal?C.migrate(JSON.parse(rawOriginal)):old?C.migrate(C.fromV1(JSON.parse(old))):C.fresh();if(rawOriginal&&Number(JSON.parse(rawOriginal).schemaRevision||0)<3&&!localStorage.getItem(BACKUP))localStorage.setItem(BACKUP,rawOriginal)}catch(e){blocked=true;store=C.fresh();$('fatal').classList.remove('hidden');$('fatal').innerHTML='<b>保存データを安全に読み込めませんでした。</b><p>元データを上書きせず、保存を停止しています。</p><button id="recoverRaw">元データを書き出す</button><p>'+esc(e.message)+'</p>';$('recoverRaw').onclick=()=>{download(rawOriginal||'', 'chapi-recovery.json');recoveryExported=true;notice('元データを書き出しました。設定から正常なバックアップを復元できます。')}}
-function persist(next=store){if(blocked){notice('元データ保護のため保存を停止しています。先に書き出してください。');return false}try{localStorage.setItem(KEY,JSON.stringify(next));store=next;return true}catch(e){notice('保存できませんでした。入力は画面に残っています。空き容量を確認しバックアップしてください。');return false}}
+// v3.9: validate and prepare on explicit writes only; never rewrite on startup.
+let lastSavedRaw=localStorage.getItem(KEY);
+function persist(next=store){
+ if(blocked){notice('元データ保護のため保存を停止しています。先に書き出してください。');return false}
+ try{
+  const currentRaw=localStorage.getItem(KEY);
+  if(currentRaw!==lastSavedRaw)throw Error('別タブ等による更新を検出。再読み込みが必要です');
+  const input=C.clone(next);
+  // Legacy editor remains authoritative only for legacy/draft days. Never silently
+  // replace a future full v2 dish record with legacy fields.
+  for(const [date,day] of Object.entries(input.days)){
+   const previous=store.days[date];
+   if(!previous||JSON.stringify(previous.meals)===JSON.stringify(day.meals)||!day.foodV2)continue;
+   if(day.foodV2.format!=='chapi-food-day-2-draft')throw Error(date+' は新形式の食事を旧画面から変更できません');
+   // Keep the date-specific snapshot and extra slots; update only edited legacy meals.
+   for(const slot of day.foodV2.slots){
+    if(!['breakfast','lunch','dinner','snack'].includes(slot.slotId))continue;
+    const oldMeal=previous.meals?.[slot.slotId],newMeal=day.meals?.[slot.slotId];
+    if(JSON.stringify(oldMeal)===JSON.stringify(newMeal))continue;
+    // Structured fixed-slot editor has already synchronized the legacy projection.
+    if(slot.meal?.format==='chapi-food-record-2-draft'){
+     const t=ChapiFoodTotalsBridge.adopted(slot.meal);
+     const matches=['kcal','p','f','c'].every(k=>(newMeal?.[k]===''||newMeal?.[k]==null?null:Number(newMeal[k]))===(t[k]??null));
+     if(matches)continue;
+     throw Error(date+' の料理・食材明細がある食事は、明細エディタから変更してください');
+    }
+    slot.meal=mealHasRecord(newMeal)?FM.convertMeal(newMeal):null;
+   }
+  }
+  const plan=FS.prepare(input,SL,FM,input.foodSlotSettings||SL.defaults());
+  FS.validate(plan.next,SL);
+  // Preserve the exact on-disk bytes before first migration, not the in-memory normalization.
+  const safetyKey=KEY+'-before-food-v39';
+  if(currentRaw!==null&&localStorage.getItem(safetyKey)===null)localStorage.setItem(safetyKey,currentRaw);
+  if(localStorage.getItem(KEY)!==lastSavedRaw)throw Error('保存直前に外部更新を検出');
+  const written=JSON.stringify(plan.next);
+  localStorage.setItem(KEY,written);
+  lastSavedRaw=written;store=plan.next;return true;
+ }catch(e){
+  if(String(e.message).includes('更新')){blocked=true;externalConflict=true}
+  notice('保存を中止しました：'+e.message);return false;
+ }
+}
 // Do not overwrite storage at startup: migration is committed only on an explicit save.
 // Stage 1 library: initialize in memory; persist only after an explicit user action.
 const BUILTIN_LIBRARY_NAMES={bench:['DBベンチプレス','ダンベルベンチプレス'],press:['DBショルダープレス','ダンベルショルダープレス'],squat:['DBスクワット','ダンベルスクワット'],rdl:['DB RDL','ダンベルルーマニアンデッドリフト'],shrug:['DBシュラッグ','ダンベルシュラッグ']};
@@ -202,40 +246,62 @@ for(const [meal,name] of C.meals)for(const [field,unit,limit] of [['kcal','kcal'
   unusual.push(`${name} ${field.toUpperCase()}：${value} ${unit}`);
 }
 if(unusual.length&&!confirm('食事に通常より大きな数値があります。入力ミスではありませんか？\n'+unusual.join('\n')+'\nこの数値で保存しますか？'))return false;
-const next=C.clone(store);next.days[current]=C.clone(draft);if(!persist(next))return false;savedDraft=JSON.stringify(draft);clearJournal();autoStatus('保存済み');notice('この日の記録と食事を保存しました');renderEnergy();renderWeek();if(activeTab==='calendar')renderCalendar();return true}
+const next=C.clone(store);try{next.days[current]=FDM.merge(draft,JSON.parse(savedDraft),C.normalizeDay(store.days[current]));}catch(e){notice('保存を中止しました：'+e.message);return false}if(!persist(next))return false;draft=C.clone(store.days[current]);savedDraft=JSON.stringify(draft);clearJournal();autoStatus('保存済み');notice('この日の記録と食事を保存しました');renderEnergy();renderWeek();if(activeTab==='calendar')renderCalendar();return true}
 function saveOneMeal(key){
+ if([draft,store.days[current]].some(day=>day?.foodV2?.slots?.some(s=>s.slotId===key&&s.meal?.format==='chapi-food-record-2-draft'&&s.meal.totalMode!=='legacy'))){notice('料理・食材明細がある食事は明細エディタから保存してください');return false}
  const meal=draft.meals?.[key];if(!meal){notice('食事の入力がありません');return false}
  for(const f of ['kcal','p','f','c']){const v=meal[f];if(v!==''&&v!=null&&!C.nonnegative(v)){notice('食事は0以上の数値で入力してください');return false}}
  const next=C.clone(store),base=C.normalizeDay(next.days[current]);
  base.meals[key]=C.clone(meal);
+ if(base.foodV2?.format==='chapi-food-day-2-draft'){
+  const slot=base.foodV2.slots.find(s=>s.slotId===key);
+  if(slot)slot.meal=FM.convertMeal(meal);
+ }
  next.days[current]=base;
  if(!persist(next))return false;
  // 保存した食事だけを保存済みスナップショットに反映。ほかの未保存入力は保持。
  const snapshot=JSON.parse(savedDraft);snapshot.meals[key]=C.clone(meal);savedDraft=JSON.stringify(snapshot);
  if(dayDirty())journalDraft();else clearJournal();
  notice((C.meals.find(m=>m[0]===key)?.[1]||'食事')+'を保存しました ✓');
- renderFoodSummary();renderEnergy();renderWeek();return true;
+ // Rebuild the detail editor from the newly saved legacy meal; otherwise its
+ // controls retain the empty pre-save values and can erase a valid meal.
+ renderFood();renderEnergy();renderWeek();return true;
 }
 // v3.6: Only the selected meal is persisted; other unsaved day edits are untouched.
 function mealHasRecord(meal){return !!(meal&&(meal.skipped===true||String(meal.note||'').trim()||['kcal','p','f','c'].some(f=>C.nonnegative(meal[f]))||(Array.isArray(meal.aiItems)&&meal.aiItems.length>0)))}
+function commitFixedOperation(key,operation,message){
+ const next=C.clone(store),existing=Object.prototype.hasOwnProperty.call(store.days,current);
+ const target=C.normalizeDay(next.days[current]);
+ try{
+  const updated=operation(target,existing);
+  next.days[current]=updated;
+  if(!persist(next))return false;
+  // Only the affected meal is synchronized. Other unsaved draft edits survive.
+  draft.meals[key]=C.clone(store.days[current].meals[key]);
+  if(store.days[current].foodV2)draft.foodV2=C.clone(store.days[current].foodV2);
+  const snapshot=JSON.parse(savedDraft);
+  snapshot.meals[key]=C.clone(draft.meals[key]);
+  if(draft.foodV2)snapshot.foodV2=C.clone(draft.foodV2);
+  savedDraft=JSON.stringify(snapshot);
+  if(dayDirty())journalDraft();else clearJournal();
+  renderFood();renderEnergy();renderWeek();notice(message);return true;
+ }catch(e){notice('食事の更新を中止しました：'+e.message);return false}
+}
 function replaceOneMeal(key,replacement,message){
- const previous=draft.meals[key]===undefined?undefined:C.clone(draft.meals[key]);
- draft.meals[key]=C.clone(replacement);
- if(!saveOneMeal(key)){if(previous===undefined)delete draft.meals[key];else draft.meals[key]=previous;renderFood();return false}
- renderFood();notice(message);return true;
+ return commitFixedOperation(key,(day,existing)=>FO.apply(day,existing,store.foodSlotSettings||SL.defaults(),key,{legacy:replacement}),message);
 }
 function deleteOneMeal(key){
  const name=C.meals.find(m=>m[0]===key)?.[1]||'食事';
- if(!mealHasRecord(draft.meals[key])){notice(name+'は未記録です');return}
- if(!confirm(current+' の'+name+'を削除して未記録に戻しますか？\nカロリー・PFC・備考・AI食品内訳が削除されます。ほかの食事は変更しません。'))return;
- replaceOneMeal(key,{},name+'を削除しました');
+ if(!FO.present(draft,key)){notice(name+'は未記録です');return}
+ if(!confirm(current+' の'+name+'を削除して未記録に戻しますか？\n料理・食材明細、カロリー・PFC、備考、AI食品内訳が削除されます。ほかの食事は変更しません。'))return;
+ commitFixedOperation(key,(day,existing)=>FO.apply(day,existing,store.foodSlotSettings||SL.defaults(),key,null),name+'を削除しました');
 }
 function copyPreviousMeal(key){
  const name=C.meals.find(m=>m[0]===key)?.[1]||'食事',previousDate=C.plusDays(current,-1);
- const source=C.normalizeDay(store.days[previousDate]).meals[key];
- if(!mealHasRecord(source)){notice(previousDate+' の'+name+'は未記録のためコピーできません');return}
- if(mealHasRecord(draft.meals[key])&&!confirm(current+' の'+name+'を、'+previousDate+' の記録で上書きしますか？\n現在の備考・AI食品内訳も置き換わります。'))return;
- replaceOneMeal(key,source,previousDate+' の'+name+'をコピーしました');
+ const source=C.normalizeDay(store.days[previousDate]);
+ if(!FO.present(source,key)){notice(previousDate+' の'+name+'は未記録のためコピーできません');return}
+ if(FO.present(draft,key)&&!confirm(current+' の'+name+'を、'+previousDate+' の記録で上書きしますか？\n現在の料理・食材明細と備考も置き換わります。'))return;
+ commitFixedOperation(key,(day,existing)=>FO.copy(source,day,true,existing,store.foodSlotSettings||SL.defaults(),key),previousDate+' の'+name+'をコピーしました');
 }
 function aiDiscard(){aiPending=null;$('aiAccept').disabled=true;$('aiAcceptTop').disabled=true;$('aiPreview').replaceChildren();}
 function switchTab(name){if(name===activeTab)return;if(activeTab==='settings'&&name!=='settings'&&settingsDirty&&!confirm('設定に未保存の変更があります。設定を保存せず移動しますか？'))return;sync();activeTab=name;for(const p of document.querySelectorAll('.page'))p.classList.toggle('hidden',p.id!==name);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));if(name==='record'){refreshPickers();renderExercises();renderEnergy();renderWeek()}if(name==='food')renderFood();if(name==='calendar')renderCalendar();if(name==='progress')renderGraphs();if(name==='history')renderHistory();if(name==='templates'){renderTemplates();renderLibrary()}if(name==='settings'){renderSettings();dirtySections.clear();settingsDirty=false}window.scrollTo?.({top:0,behavior:'smooth'})}
@@ -480,15 +546,130 @@ function aiPreview(){
 function aiAccept(){
  if(!aiPending){notice('先に取り込み内容を確認してください');return}
  const key=$('aiMealSelect').value,name=C.meals.find(x=>x[0]===key)?.[1]||key,meal=draft.meals[key]||{};
- if((meal.skipped||AI_FIELDS.some(f=>C.nonnegative(meal[f]))||meal.aiItems?.length)&&!confirm(`${current}の${name}の数値と内訳を置き換えます。備考は保持します。よろしいですか？`))return;
- const previous=C.clone(meal);
- draft.meals[key]={...meal,aiItems:C.clone(aiPending),aiSource:'AI推定・要確認'};
- const t=aiSum(draft.meals[key].aiItems);for(const f of AI_FIELDS)draft.meals[key][f]=t[f];draft.meals[key].skipped=false;draft.meals[key].aiStale=false;
- if(!saveOneMeal(key)){draft.meals[key]=previous;notice('保存に失敗したため取り込みを確定していません。JSONは保持しています。');return}
- aiDiscard();$('aiPreview').textContent=name+'に反映して保存しました ✓';renderFood();renderEnergy();renderWeek();
+ if(!['breakfast','lunch','dinner','snack'].includes(key)){notice('この形式のAI取込は固定4枠のみ対応しています');return}
+ if(FO.present(draft,key)&&!confirm(`${current}の${name}の記録・料理・食材明細を置き換えます。備考は保持します。よろしいですか？`))return;
+ const items=C.clone(aiPending),t=aiSum(items);
+ const replacement={...meal,aiItems:items,aiSource:'AI推定・要確認',skipped:false,aiStale:false};
+ for(const f of AI_FIELDS)replacement[f]=t[f];
+ if(!commitFixedOperation(key,(day,existing)=>FO.apply(day,existing,store.foodSlotSettings||SL.defaults(),key,{legacy:replacement}),name+'にAI推定を反映して保存しました'))return;
+ aiDiscard();$('aiPreview').textContent=name+'に反映して保存しました ✓';
 }
 
-function renderFood(){const totals=C.foodTotals(draft);$('foodDate').textContent=current;$('foodInputs').innerHTML='';for(const [key,name] of C.meals){const wrap=document.createElement('div');wrap.className='meal meal-section';const head=document.createElement('div');head.className='meal-head';const heading=document.createElement('h3');heading.textContent=name;head.append(heading);const skip=document.createElement('label');skip.className='check meal-skip';const skipInput=document.createElement('input');skipInput.type='checkbox';skipInput.checked=!!draft.meals?.[key]?.skipped;skipInput.onchange=()=>{draft.meals[key]={...(draft.meals[key]||{}),skipped:skipInput.checked};renderFood();renderEnergy()};skip.append(skipInput,'食べなかった');head.append(skip);const mealSave=button('保存',()=>saveOneMeal(key),'meal-save');head.append(mealSave);wrap.append(head);const mealActions=document.createElement('div');mealActions.className='meal-quick-actions';mealActions.append(button('↩ 前日の食事をコピー',()=>copyPreviousMeal(key),'meal-copy'),button('削除',()=>deleteOneMeal(key),'meal-delete'));wrap.append(mealActions);const grid=document.createElement('div');grid.className='food-grid';if(skipInput.checked)grid.classList.add('meal-disabled');for(const [field,label] of [['kcal','kcal'],['p','P（g）'],['f','F（g）'],['c','C（g）']]){const inp=numberInput(label,draft.meals?.[key]?.[field],v=>{draft.meals[key]={...(draft.meals[key]||{}),[field]:v,aiStale:Array.isArray(draft.meals[key]?.aiItems)&&draft.meals[key].aiItems.length>0?true:draft.meals[key]?.aiStale};renderFoodSummary()});inp.querySelector('input').id=`food_${key}_${field}`;inp.querySelector('input').disabled=skipInput.checked;grid.append(inp)}wrap.append(grid);const noteField=textInput('備考（任意）',draft.meals?.[key]?.note||'',v=>{draft.meals[key]={...(draft.meals[key]||{}),note:v}},true);noteField.classList.add('meal-note');noteField.querySelector('textarea').id=`food_${key}_note`;noteField.querySelector('textarea').placeholder='料理名・量・食事の状況など';wrap.append(noteField);aiItemEditor(key,wrap);$('foodInputs').append(wrap)}$('foodComplete').checked=!!draft.foodComplete;renderFoodSummary()}
+function saveExtraMeal(id,values){
+ const existing=Object.prototype.hasOwnProperty.call(store.days,current);
+ const next=C.clone(store),base=C.normalizeDay(next.days[current]);
+ const meal=values===null?null:{format:'chapi-food-record-2-draft',totalMode:values.totalMode,manualTotal:C.clone(values.total),entries:C.clone(values.entries),skipped:values.skipped,note:values.note};
+ try{
+  const fixed=['breakfast','lunch','dinner','snack'].includes(id);
+  const updated=fixed?(meal===null?FO.apply(base,existing,store.foodSlotSettings||SL.defaults(),id,null):FA.setFixedMeal(base,existing,store.foodSlotSettings||SL.defaults(),id,meal)):DS.withMeal(base,existing,store.foodSlotSettings||SL.defaults(),id,meal);
+  next.days[current]=updated;
+  if(!persist(next))return false;
+  draft.foodV2=C.clone(store.days[current].foodV2);
+  if(['breakfast','lunch','dinner','snack'].includes(id))draft.meals[id]=C.clone(store.days[current].meals[id]);
+  const saved=JSON.parse(savedDraft);saved.foodV2=C.clone(draft.foodV2);
+  if(['breakfast','lunch','dinner','snack'].includes(id))saved.meals[id]=C.clone(draft.meals[id]);
+  savedDraft=JSON.stringify(saved);
+  if(dayDirty())journalDraft();else clearJournal();
+  notice('食事明細を保存しました ✓');renderFood();renderEnergy();renderWeek();return true;
+ }catch(e){notice('保存できません：'+e.message);return false;}
+}
+function renderExtraMeals(root,includeFixed=false){
+ const existing=Object.prototype.hasOwnProperty.call(store.days,current);
+ const slots=DS.snapshot(draft,existing,store.foodSlotSettings||SL.defaults());
+ for(const slot of slots.filter(s=>includeFixed?['breakfast','lunch','dinner','snack'].includes(s.slotId):!['breakfast','lunch','dinner','snack'].includes(s.slotId))){
+  const wrap=document.createElement('div');wrap.className='meal meal-section';wrap.dataset.slotId=slot.slotId;
+  const title=document.createElement('h3');title.textContent=slot.slotName+(includeFixed?'・料理と食材の明細':'');wrap.append(title);
+  if(includeFixed){wrap.classList.add('fixed-detail-editor');wrap.hidden=true;}
+  const prior=slot.meal;
+  const values={total:{kcal:'',p:'',f:'',c:''},skipped:!!prior?.skipped,note:prior?.note||'',
+   totalMode:prior?.totalMode==='auto'?'auto':'manual',entries:C.clone(prior?.entries||[])};
+  for(const k of ['kcal','p','f','c'])values.total[k]=prior?.manualTotal?.[k]??(includeFixed?draft.meals?.[slot.slotId]?.[k]:'')??'';
+  const skip=document.createElement('label');skip.className='check';const tick=document.createElement('input');tick.type='checkbox';tick.checked=values.skipped;
+  skip.append(tick,'食べなかった');wrap.append(skip);
+  const modeRow=document.createElement('div');modeRow.className='meal-quick-actions';
+  const modeLabel=document.createElement('label');modeLabel.textContent='合計の計算方法 ';
+  const modeSelect=document.createElement('select');
+  for(const [value,label] of [['manual','合計を手動入力'],['auto','明細から自動計算']]){const option=document.createElement('option');option.value=value;option.textContent=label;modeSelect.append(option)}
+  modeSelect.value=values.totalMode;modeSelect.onchange=()=>{values.totalMode=modeSelect.value;updatePreview()};modeLabel.append(modeSelect);modeRow.append(modeLabel);wrap.append(modeRow);
+  const grid=document.createElement('div');grid.className='food-grid';
+  for(const [k,label] of [['kcal','kcal'],['p','P（g）'],['f','F（g）'],['c','C（g）']]){
+   const input=numberInput(label,values.total[k],v=>{values.total[k]=v;updatePreview()});input.dataset.nutrient=k;grid.append(input);
+  }wrap.append(grid);
+  const entriesRoot=document.createElement('div');entriesRoot.className='food-entry-editor';wrap.append(entriesRoot);
+  const preview=document.createElement('p');preview.className='muted';wrap.append(preview);
+  function updatePreview(){
+   grid.classList.toggle('meal-disabled',values.totalMode==='auto'||values.skipped);
+   for(const input of grid.querySelectorAll('input'))input.disabled=values.totalMode==='auto'||values.skipped;
+   entriesRoot.classList.toggle('meal-disabled',values.skipped);
+   for(const input of entriesRoot.querySelectorAll('input,select,button'))input.disabled=values.skipped;
+   if(values.totalMode==='auto'){
+    const result=ChapiFoodTotalsBridge.adopted({totalMode:'auto',entries:values.entries,skipped:values.skipped});
+    preview.textContent='採用合計（明細）: '+['kcal','p','f','c'].map(k=>k.toUpperCase()+' '+(result[k]===null?'不明':result[k])).join(' / ');
+   }else preview.textContent='採用合計：手動入力値（明細は二重計上しません）';
+  }
+  function detailFields(line,item){
+   line.append(numberInput('数量（任意）',item.quantity??'',v=>{item.quantity=v===''?null:Number(v)},{step:'0.1'}));
+   const unit=textInput('単位（任意）',item.unit||'',v=>{item.unit=v});unit.querySelector('input').placeholder='g / ml / 個 など';line.append(unit);
+   line.append(numberInput('食塩相当量（g・任意）',item.salt??'',v=>{item.salt=v===''?null:Number(v)},{step:'0.1'}));
+   const source=textInput('数値の根拠（任意）',item.source||'',v=>{item.source=v});source.querySelector('input').placeholder='表示値 / 本人入力 / AI推定 など';line.append(source);
+  }
+  function validDetail(item){
+   return (item.quantity===null||item.quantity===undefined||item.quantity===''||(Number.isFinite(Number(item.quantity))&&Number(item.quantity)>=0))&&
+    (item.salt===null||item.salt===undefined||item.salt===''||(Number.isFinite(Number(item.salt))&&Number(item.salt)>=0));
+  }
+  function drawEntries(){
+   entriesRoot.replaceChildren();const heading=document.createElement('h4');heading.textContent='料理・食材の明細';entriesRoot.append(heading);
+   values.entries.forEach((entry,index)=>{
+    const line=document.createElement('div');line.className='food-entry-row';
+    const name=textInput(entry.kind==='dish'?'料理名':'食材名',entry.name||'',v=>{entry.name=v});line.append(name);detailFields(line,entry);
+    if(entry.kind==='dish'){
+     const select=document.createElement('select');for(const [value,label] of [['estimate','料理の推定合計'],['ingredients','材料の合計']]){const option=document.createElement('option');option.value=value;option.textContent=label;select.append(option)}
+     select.value=entry.calculationMode||'estimate';select.onchange=()=>{entry.calculationMode=select.value;drawEntries()};line.append(select);
+     if(select.value==='ingredients'){
+      const nested=document.createElement('div');nested.className='food-entry-nested';
+      (entry.ingredients||[]).forEach((ing,j)=>{const sub=document.createElement('div');sub.className='food-entry-row';sub.append(textInput('材料名',ing.name||'',v=>{ing.name=v}));detailFields(sub,ing);for(const [k,label] of [['kcal','kcal'],['p','P'],['f','F'],['c','C']]){sub.append(numberInput(label,ing[k]??'',v=>{ing[k]=v===''?null:Number(v);updatePreview()}))}sub.append(button('材料削除',()=>{entry.ingredients.splice(j,1);drawEntries()},'outline'));nested.append(sub)});
+      nested.append(button('＋ 材料を追加',()=>{(entry.ingredients??=[]).push({name:'',kcal:null,p:null,f:null,c:null});drawEntries()},'outline'));line.append(nested);
+     }
+    }
+    if(entry.kind!=='dish'||entry.calculationMode!=='ingredients'){
+     const target=entry.kind==='dish'?(entry.estimate??={kcal:null,p:null,f:null,c:null}):entry;
+     for(const [k,label] of [['kcal','kcal'],['p','P'],['f','F'],['c','C']])line.append(numberInput(label,target[k]??'',v=>{target[k]=v===''?null:Number(v);updatePreview()}));
+    }
+    line.append(button('削除',()=>{values.entries.splice(index,1);drawEntries()},'outline'));entriesRoot.append(line);
+   });
+   const actions=document.createElement('div');actions.className='meal-quick-actions';
+   actions.append(button('＋ 食材',()=>{values.entries.push({kind:'ingredient',name:'',kcal:null,p:null,f:null,c:null});drawEntries()},'outline'));
+   actions.append(button('＋ 料理',()=>{values.entries.push({kind:'dish',name:'',calculationMode:'estimate',estimate:{kcal:null,p:null,f:null,c:null},ingredients:[]});drawEntries()},'outline'));
+   entriesRoot.append(actions);updatePreview();
+  }
+  tick.onchange=updatePreview;drawEntries();
+  wrap.append(textInput('備考（任意）',values.note,v=>{values.note=v},true));
+  wrap.append(button('保存',()=>{
+   const isNum=v=>v===null||v===''||(Number.isFinite(Number(v))&&Number(v)>=0);
+   if(!['kcal','p','f','c'].every(k=>isNum(values.total[k]))){notice('栄養値は0以上の有限数で入力してください');return}
+   for(const e of values.entries){
+    if(!validDetail(e)||(e.kind==='dish'&&(e.ingredients||[]).some(i=>!validDetail(i)))){notice('数量・食塩相当量は0以上の数値で入力してください');return}
+    if(!e.name?.trim()){notice('料理・食材名を入力してください');return}
+    const list=e.kind==='dish'?(e.calculationMode==='ingredients'?e.ingredients:[e.estimate]):[e];
+    if(!Array.isArray(list)||list.some(v=>!v||['kcal','p','f','c'].some(k=>!isNum(v[k])))){notice('明細の栄養値を確認してください');return}
+    if(e.kind==='dish'&&e.calculationMode==='ingredients'&&list.some(v=>!v.name?.trim())){notice('材料名を入力してください');return}
+   }
+   if(!values.skipped&&values.totalMode==='auto'&&!values.entries.length){notice('自動計算には明細を追加してください');return}
+   if(!values.skipped&&values.totalMode==='manual'&&!['kcal','p','f','c'].some(k=>C.nonnegative(values.total[k]))&&!values.note.trim()&&!values.entries.length){notice('未入力です。削除する場合は削除ボタンを使ってください');return}
+   const total=Object.fromEntries(['kcal','p','f','c'].map(k=>[k,C.nonnegative(values.total[k])?Number(values.total[k]):null]));
+   saveExtraMeal(slot.slotId,{...values,total});
+  },'meal-save'));
+  if(prior)wrap.append(button('削除して未記録に戻す',()=>{if(confirm(slot.slotName+'の記録を削除しますか？'))saveExtraMeal(slot.slotId,null)},'outline'));
+  if(includeFixed){
+   const fixed=document.querySelector('#foodInputs .meal[data-slot-id="'+slot.slotId+'"]');
+   if(fixed){
+    const open=button('料理・食材の明細を編集',()=>{wrap.hidden=!wrap.hidden},'outline');
+    fixed.append(open,wrap);
+   }
+  }else root.append(wrap);
+ }
+}
+function renderFood(){const totals=C.foodTotals(draft);$('foodDate').textContent=current;$('foodInputs').innerHTML='';const existing=Object.prototype.hasOwnProperty.call(store.days,current);const daySlots=DS.snapshot(draft,existing,store.foodSlotSettings||SL.defaults());const slotById=new Map(daySlots.map(s=>[s.slotId,s]));for(const [key,name] of C.meals){const wrap=document.createElement('div');wrap.className='meal meal-section';wrap.dataset.slotId=key;const head=document.createElement('div');head.className='meal-head';const heading=document.createElement('h3');heading.textContent=slotById.get(key)?.slotName||name;head.append(heading);const skip=document.createElement('label');skip.className='check meal-skip';const skipInput=document.createElement('input');skipInput.type='checkbox';skipInput.checked=!!draft.meals?.[key]?.skipped;skipInput.onchange=()=>{draft.meals[key]={...(draft.meals[key]||{}),skipped:skipInput.checked};renderFood();renderEnergy()};skip.append(skipInput,'食べなかった');head.append(skip);const mealSave=button('保存',()=>saveOneMeal(key),'meal-save');head.append(mealSave);wrap.append(head);const mealActions=document.createElement('div');mealActions.className='meal-quick-actions';mealActions.append(button('↩ 前日の食事をコピー',()=>copyPreviousMeal(key),'meal-copy'),button('削除',()=>deleteOneMeal(key),'meal-delete'));wrap.append(mealActions);const grid=document.createElement('div');grid.className='food-grid';if(skipInput.checked)grid.classList.add('meal-disabled');for(const [field,label] of [['kcal','kcal'],['p','P（g）'],['f','F（g）'],['c','C（g）']]){const inp=numberInput(label,draft.meals?.[key]?.[field],v=>{draft.meals[key]={...(draft.meals[key]||{}),[field]:v,aiStale:Array.isArray(draft.meals[key]?.aiItems)&&draft.meals[key].aiItems.length>0?true:draft.meals[key]?.aiStale};renderFoodSummary()});inp.querySelector('input').id=`food_${key}_${field}`;inp.querySelector('input').disabled=skipInput.checked;grid.append(inp)}wrap.append(grid);const noteField=textInput('備考（任意）',draft.meals?.[key]?.note||'',v=>{draft.meals[key]={...(draft.meals[key]||{}),note:v}},true);noteField.classList.add('meal-note');noteField.querySelector('textarea').id=`food_${key}_note`;noteField.querySelector('textarea').placeholder='料理名・量・食事の状況など';wrap.append(noteField);aiItemEditor(key,wrap);$('foodInputs').append(wrap)}renderExtraMeals($('foodInputs'));renderExtraMeals($('foodInputs'),true);const root=$('foodInputs');const nodes=[...root.children];const orders=new Map(daySlots.map((s,i)=>[s.slotId,i]));nodes.sort((a,b)=>(orders.get(a.dataset.slotId)??1000)-(orders.get(b.dataset.slotId)??1000));root.append(...nodes);$('foodComplete').checked=!!draft.foodComplete;renderFoodSummary()}
 function renderFoodSummary(){const t=C.foodTotals(draft),targets=store.foodTargets||{},root=$('foodSummary');root.innerHTML='';for(const [f,label,unit] of [['kcal','摂取カロリー','kcal'],['p','タンパク質 P','g'],['f','脂質 F','g'],['c','炭水化物 C','g']]){const box=document.createElement('div');box.className='food-stat';const target=Number(targets[f]);box.innerHTML=`<span class="label">${label}</span><strong>${t.count[f]?round(t.total[f],1)+' <small>'+unit+'</small>':'未記録'}</strong><progress max="100" value="${target?Math.min(100,t.total[f]/target*100):0}"></progress><small>目標 ${Number.isFinite(target)?round(target,1)+' '+unit:'未設定'}${Number.isFinite(target)?'<br>残り '+round(target-t.total[f],1)+' '+unit:''}</small>`;root.append(box)}}
 function dayReport(day,d){
  // An untouched, unsaved draft is not a recorded day. Keep saved records even if empty.
@@ -600,7 +781,25 @@ function saveTemplate(){editing.name=$('templateName').value.trim();if(!editing.
  for(const i of editing.items){const original=lib.items.find(x=>x.id===i.id);if(original&&original.kind!==i.kind){notice('種目の種類が異なります。別の種目を選んでください');return}if(original&&original.name!==i.name&&!ambiguous.has(i.id)){notice('種目名の修正は種目ライブラリから行ってください。別の運動は「種目を選択」で切り替えてください');return}if(original&&original.name!==i.name&&ambiguous.has(i.id)){notice('IDが衝突している種目は名称変更できません。新しい種目として登録してください');return}}
  const next=C.clone(store),idx=next.templates.findIndex(x=>x.id===editing.id);if(idx>=0)next.templates[idx]=C.clone(editing);else next.templates.push(C.clone(editing));if(persist(next)){editing=null;$('templateEditor').classList.add('hidden');renderTemplates();refreshPickers();notice('メニューを保存しました')}}
 const activityOptions=[['1.2','座り仕事中心／休日は休息','机での仕事が中心。運動を除き3,000歩未満、立つ・歩く時間は1日30分未満が多い。'],['1.375','立ち仕事や移動が多い','接客や軽い工場内移動。運動を除き3,000〜6,000歩、立つ・歩く時間は1日30〜90分程度。'],['1.55','日常的に身体を動かす','配送・巡回・家事などでよく動く。運動を除き6,000〜10,000歩、1日1.5〜3時間程度の移動や作業。'],['1.725','肉体労働中心','運搬・建設など負荷のある作業が多い。運動を除き10,000歩以上や1日3時間以上の身体作業が目安。']];
-function renderSettings(){const p=store.profile||{};$('profileHeight').value=p.height??'';$('profileBirth').value=p.birth??'';$('profileSex').value=p.sex??'';$('specialCondition').checked=!!p.special;$('activityChoices').innerHTML='';for(const [value,title,hint] of activityOptions){const label=document.createElement('label');label.className='activity-option';label.innerHTML=`<input type="radio" name="activity" value="${value}" ${Number(p.lifeActivity)===Number(value)?'checked':''}><b>${title}（×${value}）</b><span>${hint}</span>`;$('activityChoices').append(label)}$('activityMigration').classList.toggle('hidden',p.lifeActivity!==null);targetsDraft={kcal:2000,p:130,f:60,c:235,...C.clone(store.foodTargets||{})};targetsDraft.locks={p:false,f:false,c:false,...(targetsDraft.locks||{})};targetsDraft.mode=targetsDraft.mode||'g';$('purpose').value=targetsDraft.purpose||'custom';$('macroMode').value=targetsDraft.mode;$('targetKcal').value=targetsDraft.kcal;renderMacros();const g=C.goalAt(store,today()),latest=C.weightAt(store,today());$('goalCurrent').value=latest?.weight??g?.current??'';$('goalTarget').value=g?.target??'';$('goalMonths').value=g?.months??12;$('goalMonthsRange').value=$('goalMonths').value;$('goalExerciseWeekly').value=g?.exerciseWeeklyKcal??0;$('goalExerciseRange').value=Math.min(5000,Number($('goalExerciseWeekly').value)||0);renderGoalPreview();$('suggestionBox').classList.add('hidden')}
+function renderFoodSlotSettings(){
+ const root=$('foodSlotSettings');if(!root)return;$('addFoodSlot').onclick=()=>{try{const id='snack-'+uid().replace(/-/g,'');foodSlotSettingsDraft=SL.change(foodSlotSettingsDraft,{type:'add',id,name:'追加の間食'});markDirty('foodSlots');renderFoodSlotSettings()}catch(e){notice(e.message)}};$('saveFoodSlots').onclick=saveFoodSlotSettings;
+ if(!foodSlotSettingsDraft)foodSlotSettingsDraft=C.clone(store.foodSlotSettings||SL.defaults());
+ root.replaceChildren();const ordered=foodSlotSettingsDraft.slice().sort((a,b)=>a.order-b.order);
+ ordered.forEach((slot,index)=>{
+  const line=document.createElement('div');line.className='meal-quick-actions';
+  const title=document.createElement('span');title.textContent=slot.active?slot.name:slot.name+'（非表示）';line.append(title);
+  if(!['breakfast','lunch','dinner'].includes(slot.id)){
+   const rename=button('名前',()=>{const name=prompt('食事枠の名前',slot.name);if(name===null)return;try{foodSlotSettingsDraft=SL.change(foodSlotSettingsDraft,{type:'rename',id:slot.id,name});markDirty('foodSlots');renderFoodSlotSettings()}catch(e){notice(e.message)}},'outline');line.append(rename);
+  }
+  if(slot.id.startsWith('snack-'))line.append(button(slot.active?'非表示':'再表示',()=>{try{foodSlotSettingsDraft=SL.change(foodSlotSettingsDraft,{type:slot.active?'hide':'show',id:slot.id});markDirty('foodSlots');renderFoodSlotSettings()}catch(e){notice(e.message)}},'outline'));
+  for(const [offset,label] of [[-1,'↑'],[1,'↓']]){const other=ordered[index+offset];if(!other)continue;line.append(button(label,()=>{const ids=ordered.map(s=>s.id);[ids[index],ids[index+offset]]=[ids[index+offset],ids[index]];try{foodSlotSettingsDraft=SL.change(foodSlotSettingsDraft,{type:'reorder',ids});markDirty('foodSlots');renderFoodSlotSettings()}catch(e){notice(e.message)}},'outline'))}
+  root.append(line);
+ });
+}
+function saveFoodSlotSettings(){
+ try{SL.validate(foodSlotSettingsDraft);const plan=SL.planStoreUpdate(store,foodSlotSettingsDraft);if(!persist(plan.next))return;cleanSection('foodSlots');notice('食事枠の設定を保存しました');renderFoodSlotSettings()}catch(e){notice('食事枠を保存できません：'+e.message)}
+}
+function renderSettings(){foodSlotSettingsDraft=C.clone(store.foodSlotSettings||SL.defaults());renderFoodSlotSettings();const p=store.profile||{};$('profileHeight').value=p.height??'';$('profileBirth').value=p.birth??'';$('profileSex').value=p.sex??'';$('specialCondition').checked=!!p.special;$('activityChoices').innerHTML='';for(const [value,title,hint] of activityOptions){const label=document.createElement('label');label.className='activity-option';label.innerHTML=`<input type="radio" name="activity" value="${value}" ${Number(p.lifeActivity)===Number(value)?'checked':''}><b>${title}（×${value}）</b><span>${hint}</span>`;$('activityChoices').append(label)}$('activityMigration').classList.toggle('hidden',p.lifeActivity!==null);targetsDraft={kcal:2000,p:130,f:60,c:235,...C.clone(store.foodTargets||{})};targetsDraft.locks={p:false,f:false,c:false,...(targetsDraft.locks||{})};targetsDraft.mode=targetsDraft.mode||'g';$('purpose').value=targetsDraft.purpose||'custom';$('macroMode').value=targetsDraft.mode;$('targetKcal').value=targetsDraft.kcal;renderMacros();const g=C.goalAt(store,today()),latest=C.weightAt(store,today());$('goalCurrent').value=latest?.weight??g?.current??'';$('goalTarget').value=g?.target??'';$('goalMonths').value=g?.months??12;$('goalMonthsRange').value=$('goalMonths').value;$('goalExerciseWeekly').value=g?.exerciseWeeklyKcal??0;$('goalExerciseRange').value=Math.min(5000,Number($('goalExerciseWeekly').value)||0);renderGoalPreview();$('suggestionBox').classList.add('hidden')}
 function saveProfile(){const height=$('profileHeight').value,birth=$('profileBirth').value,sex=$('profileSex').value,activity=document.querySelector('input[name=activity]:checked')?.value;if(!C.numeric(height)||height<80||height>250||C.age(birth,today())===null||!['male','female'].includes(sex)||!activity){notice('身長・生年月日・性別・生活活動を確認してください');return}const next=C.clone(store);next.profile={...(next.profile||{}),height,birth,sex,lifeActivity:Number(activity),special:$('specialCondition').checked};if(persist(next)){cleanSection('profile');$('activityMigration').classList.add('hidden');renderGoalPreview();notice('プロフィールを保存しました')}}
 function macroMessage(s){$('macroMessage').textContent=s;$('macroMessage').classList.toggle('hidden',!s)}
 function renderMacros(){const root=$('macroControls');root.innerHTML='';$('targetKcal').value=roundPlain(targetsDraft.kcal);for(const [f,name] of [['p','タンパク質 P'],['f','脂質 F'],['c','炭水化物 C']]){const value=targetsDraft.mode==='percent'?Number(targetsDraft[f])*C.factors[f]/targetsDraft.kcal*100:Number(targetsDraft[f]),max=targetsDraft.mode==='percent'?100:targetsDraft.kcal/C.factors[f],box=document.createElement('div');box.className='macro';box.innerHTML=`<div class="row"><b>${name}</b><button id="lock_${f}" class="outline" aria-pressed="${!!targetsDraft.locks[f]}" aria-label="${name}を${targetsDraft.locks[f]?'解除':'ロック'}">${targetsDraft.locks[f]?'🔒 固定':'🔓 調整可'}</button></div>`;const label=document.createElement('label');label.className='row';label.innerHTML=`<input id="macro_${f}" class="macro-number" type="number" min="0" max="${max}" step="0.1" inputmode="decimal" value="${roundPlain(value)}" ${targetsDraft.locks[f]?'disabled':''} aria-label="${name} ${targetsDraft.mode==='percent'?'%':'g'}"><span>${targetsDraft.mode==='percent'?'%':'g'} <small>（${round(targetsDraft[f],1)} g / ${round(Number(targetsDraft[f])*C.factors[f]/targetsDraft.kcal*100,1)}%）</small></span>`;box.append(label);const slider=document.createElement('input');slider.type='range';slider.id='range_'+f;slider.min='0';slider.max=max;slider.step='0.1';slider.value=value;slider.disabled=!!targetsDraft.locks[f];slider.setAttribute('aria-label',name+' スライダー');slider.oninput=()=>commitMacro(f,slider.value,true);box.append(slider);root.append(box);$('lock_'+f).onclick=()=>{targetsDraft.locks[f]=!targetsDraft.locks[f];markDirty('targets');renderMacros();macroMessage('')};$('macro_'+f).onchange=e=>commitMacro(f,e.target.value)}const total=C.keys.reduce((a,k)=>a+Number(targetsDraft[k])*C.factors[k],0);$('macroSummary').textContent=`配分合計 ${round(total,2)} kcal ／ 目標 ${round(targetsDraft.kcal,2)} kcal。鍵はg値を固定します。`+(Math.abs(total-targetsDraft.kcal)>.01?' 既存目標は不一致のまま保持しています。いずれかの値を変更して配分を調整してください。':'')}
@@ -694,7 +893,7 @@ function renderCumulativeGraph(){
 }
 function renderMonthlyGoals(){const root=$('monthlyGoals'),g=C.goalAt(store,today());if(!g){root.innerHTML='<p class="hint">設定で体重目標と期間を保存してください。</p>';return}let html='<p class="hint">現在の計画 '+g.start+'〜'+g.end+'。月間の実測平均と比較します。過去の計画は保持しています。</p><div class="table-scroll"><table><thead><tr><th>目標日</th><th>目標 kg</th><th>実測平均 kg</th></tr></thead><tbody>';for(let n=1;n<=g.months;n++){const d=C.plusMonths(g.start,n),target=C.targetWeight(g,d),month=d.slice(0,7),weights=Object.entries(store.days).filter(([day,v])=>day.startsWith(month)&&day<=today()&&C.numeric(v.weight)&&Number(v.weight)>0).map(([,v])=>Number(v.weight));html+=`<tr><td>${d}</td><td>${round(target,1)}</td><td>${weights.length?round(weights.reduce((a,b)=>a+b,0)/weights.length,1):'未記録'}</td></tr>`}html+='</tbody></table></div>';root.innerHTML=html;const latest=C.weightAt(store,today()),reached=latest&&(g.current>g.target?latest.weight<=g.target:g.current<g.target?latest.weight>=g.target:Math.abs(latest.weight-g.target)<.5);if(reached){const div=document.createElement('div');div.className='soft';div.textContent='目標付近に到達しています。今後は維持モードへの切り替えを検討できます。';div.append(button('維持目標を設定',()=>{switchTab('settings');$('goalCurrent').value=latest.weight;$('goalTarget').value=latest.weight;renderGoalPreview();$('purpose').value='maintain';markDirty('goal');markDirty('targets')}));root.prepend(div)}}
 function exportBackup(){download({app:'chapi-training',version:2,schemaRevision:3,store},'chapi-fit-backup-'+today()+'.json')}
-async function importBackup(file){if(!file)return;try{if(file.size>50*1024*1024)throw Error('50 MBを超えるファイルです');const obj=JSON.parse(await file.text());if(obj.app!=='chapi-training')throw Error('Chapi Fitのバックアップではありません');const incoming=C.migrate(obj.store||(obj.data?C.fromV1(obj.data):null));const n=Object.keys(incoming.days).length;if(!confirm(`${n}日分の記録・${incoming.templates.length}件のメニューで、現在の記録と設定を置き換えますか？\n現在の保存データは復元前コピーとして端末内に残します。`))return;if(blocked&&(!recoveryExported||externalConflict)){notice(externalConflict?'別タブの更新を確認するため再読み込みしてください。':'元データを保護中です。まず元データを書き出してから復旧してください。');return}const wasBlocked=blocked;if(wasBlocked){localStorage.setItem('chapi-training-corrupt-original',rawOriginal);blocked=false}else localStorage.setItem(RESTORE,JSON.stringify(store));if(persist(incoming)){chooseDate(current);refreshPickers();renderSettings();dirtySections.clear();settingsDirty=false;$('fatal').classList.add('hidden');notice('バックアップを復元しました')}else if(wasBlocked)blocked=true}catch(e){notice('復元を中止しました：'+e.message)}finally{$('importFile').value=''}}
+async function importBackup(file){if(!file)return;try{if(file.size>50*1024*1024)throw Error('50 MBを超えるファイルです');const obj=JSON.parse(await file.text());if(obj.app!=='chapi-training')throw Error('Chapi Fitのバックアップではありません');const incoming=FS.parseBackup(JSON.stringify(obj),C,SL);const n=Object.keys(incoming.days).length;if(!confirm(`${n}日分の記録・${incoming.templates.length}件のメニューで、現在の記録と設定を置き換えますか？\n現在の保存データは復元前コピーとして端末内に残します。`))return;if(blocked&&(!recoveryExported||externalConflict)){notice(externalConflict?'別タブの更新を確認するため再読み込みしてください。':'元データを保護中です。まず元データを書き出してから復旧してください。');return}const wasBlocked=blocked;if(wasBlocked){localStorage.setItem('chapi-training-corrupt-original',rawOriginal);blocked=false;lastSavedRaw=localStorage.getItem(KEY)}else localStorage.setItem(RESTORE,JSON.stringify(store));if(persist(incoming)){chooseDate(current);refreshPickers();renderSettings();dirtySections.clear();settingsDirty=false;$('fatal').classList.add('hidden');notice('バックアップを復元しました')}else if(wasBlocked)blocked=true}catch(e){notice('復元を中止しました：'+e.message)}finally{$('importFile').value=''}}
 function rollover(){const now=today();if(now===loadedToday)return;$('rollover').classList.remove('hidden');$('rollover').replaceChildren(document.createTextNode('日付が変わりました。現在の入力は '+current+' のまま保持しています。 '),button('今日の記録へ',()=>{if(changeDate(now)){$('rollover').classList.add('hidden');loadedToday=now;switchTab('record')}}))}
 
 function refreshMacroNumbers(){for(const k of C.keys){const v=targetsDraft.mode==='percent'?targetsDraft[k]*C.factors[k]/targetsDraft.kcal*100:targetsDraft[k];$('macro_'+k).value=roundPlain(v);$('range_'+k).value=v;$('macro_'+k).nextElementSibling.innerHTML=(targetsDraft.mode==='percent'?'%':'g')+' <small>（'+round(targetsDraft[k],1)+' g / '+round(targetsDraft[k]*C.factors[k]/targetsDraft.kcal*100,1)+'%）</small>'}const sum=C.keys.reduce((a,k)=>a+targetsDraft[k]*C.factors[k],0);$('macroSummary').textContent='配分合計 '+round(sum,2)+' kcal ／ 目標 '+round(targetsDraft.kcal,2)+' kcal。鍵はg値を固定します。'}
