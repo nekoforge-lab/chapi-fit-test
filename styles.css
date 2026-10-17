@@ -452,3 +452,106 @@ body > #backToTop.back-to-top[hidden] {display:none!important;}
 .food-library-pick-row strong,.food-library-pick-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .food-library-pick-row small{font-size:12px;color:#657483;margin-top:2px}
 .food-library-pick-row button{flex:none;padding:6px 12px}
+
+/* Stage 33: compact meal interaction; other tabs unchanged */
+#foodInputs .meal-section{padding:12px 10px;margin:10px 0;border:1px solid #dce8e9;border-radius:12px}
+#foodInputs .meal-head{gap:8px;flex-wrap:wrap}
+#foodInputs .meal-head h3{margin:0;flex:1}
+#foodInputs .meal-quick-actions{margin:4px 0 7px}
+#foodInputs .meal-quick-actions button{min-height:32px;padding:5px 8px;font-size:12px}
+#foodInputs .meal-note{border-top:1px solid #e4ebee;padding-top:9px;margin-top:8px}
+#foodInputs .stage33-modebar{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;margin:8px 0}
+#foodInputs .stage33-modebar select{width:auto;max-width:65%;min-height:36px;margin:0;padding:5px 8px}
+#foodInputs .stage33-items-summary{font-size:13px;color:#46616b;padding:4px 0 8px;line-height:1.5}
+#foodInputs .stage33-actions{display:flex;gap:7px;flex-wrap:wrap}
+#foodInputs .stage33-actions button{width:auto;min-height:38px;padding:7px 11px;margin:0;font-size:13px}
+#foodInputs .fixed-detail-editor{margin-top:12px;padding-top:12px;border-top:1px solid #dce8e9}
+#foodInputs .fixed-detail-editor[hidden]{display:none}
+#foodInputs .fixed-detail-editor .food-entry-row{border:1px solid #e0e9ed;border-radius:9px;padding:9px;margin:8px 0}
+#foodInputs .fixed-detail-editor .food-entry-row>label{flex:1 1 115px}
+#foodMealLibraryPicker .food-library-pick-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 4px;border-bottom:1px solid #e2ebef;cursor:pointer}
+#foodMealLibraryPicker .food-library-pick-row strong{display:block;font-size:14px}
+#foodMealLibraryPicker .food-library-pick-row small{display:block;font-size:11px;color:#647983}
+#foodMealLibraryPicker .food-picker-select{width:auto;min-width:50px;min-height:32px;padding:5px 8px;font-size:12px}
+#foodLibraryClose{min-width:38px!important;width:38px!important;height:38px;padding:4px!important;font-size:22px}
+
+#foodMealLibraryPicker .food-library-pick-row button[hidden]{display:none}
+#foodMealLibraryPicker .food-library-pick-row:focus-visible{outline:2px solid #168a96;outline-offset:2px}
+
+/* Stage 33 UI pass 1: keep the meal's mode, recorded items and actions together. */
+#foodInputs .meal-section > .stage33-modebar{padding:8px 0 5px;margin:2px 0;border-top:1px solid #e6eeee}
+#foodInputs .meal-section > .stage33-items-summary{margin:4px 0 8px;line-height:1.45;font-size:13px;overflow-wrap:anywhere}
+#foodInputs .meal-section > .stage33-actions{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+#foodInputs .meal-section > .stage33-actions button{width:auto;min-height:36px;padding:6px 10px;font-size:12px}
+#foodInputs .meal-section > .fixed-detail-editor[hidden]{display:none!important}
+#foodInputs .meal-section > .fixed-detail-editor:not([hidden]){border-top:1px solid #dce8e9;margin-top:10px;padding-top:10px}
+/* Stage 33: show the adopted calculation next to the food list without opening the detail editor. */
+#foodInputs .stage33-adopted-total{display:block;font-size:12px;line-height:1.45;color:var(--muted,#52666a);margin:0 0 7px;overflow-wrap:anywhere}
+
+/* Stage 33 / 16: one-line food items, edit on demand */
+.stage33-item-details{border:1px solid var(--line,#dce5ec);border-radius:12px;margin:6px 0;overflow:hidden;background:var(--card,#fff)}
+.stage33-item-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;cursor:pointer;min-height:44px;list-style-position:inside}
+.stage33-item-summary strong{font-size:14px;overflow-wrap:anywhere}
+.stage33-item-summary span{font-size:12px;color:var(--muted,#64748b);white-space:nowrap}
+.stage33-item-details[open]>.food-entry-row{border:0;border-top:1px solid var(--line,#dce5ec);border-radius:0;margin:0;padding:10px}
+@media(max-width:420px){.stage33-item-summary{padding:10px}.stage33-item-summary span{font-size:11px}}
+
+/* Stage 33 / 19: recorded items are directly editable from the meal overview. */
+#foodInputs .stage33-items-summary{display:grid;gap:4px;margin:4px 0 8px}
+#foodInputs .stage33-meal-item{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:42px;padding:7px 10px;margin:0;width:100%;border:1px solid #e0e9ed;border-radius:9px;background:#f8fbfc;color:inherit;text-align:left;font-size:13px;box-shadow:none}
+#foodInputs .stage33-meal-item strong{font-size:13px;min-width:0;overflow-wrap:anywhere}
+#foodInputs .stage33-meal-item span{flex:none;color:#56707b;font-size:12px}
+#foodInputs .stage33-meal-item:focus-visible{outline:2px solid #168a96;outline-offset:2px}
+@media(max-width:420px){#foodInputs .stage33-meal-item{padding:7px 9px}#foodInputs .stage33-meal-item span{font-size:11px}}
+/* Stage 33: compact quantity controls for library-backed entries. */
+.stage33-quantity-controls{display:flex;gap:6px;margin-top:5px}
+.stage33-quantity-controls button{flex:1;min-height:36px;padding:5px 7px;font-size:13px;white-space:nowrap}
+/* Stage 33 / 25: keep the meal-level commit visible while editing quantities. */
+#foodInputs .fixed-detail-editor .stage33-savebar{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;justify-content:space-between;padding:10px 8px;background:var(--card,#fff);border-top:1px solid #cbdcde;box-shadow:0 -3px 12px #00000012}
+#foodInputs .fixed-detail-editor .stage33-savebar .meal-save{width:auto;min-width:140px;margin:0;min-height:44px}
+#foodInputs .fixed-detail-editor .stage33-save-state{font-size:12px;line-height:1.4;color:#596b6d}
+#foodInputs .fixed-detail-editor .stage33-unsaved .stage33-save-state{font-weight:700;color:#9b5414}
+
+/* Stage 33: compact food overview; keep full editor available per meal. */
+#foodInputs .compact-meal{padding:6px 0;margin:0;border-bottom:1px solid var(--line)}
+#foodInputs .compact-meal-toggle{display:block;width:100%;min-height:46px;padding:9px 12px;text-align:left;background:#f0f8fa;border:1px solid #c6e1e7;border-radius:10px;color:#244e60;font-size:14px;font-weight:650}
+#foodInputs .compact-meal:not(.compact-meal-open)>:not(.compact-meal-toggle){display:none!important}
+#foodInputs .compact-meal-open{padding-bottom:12px}
+#foodInputs .compact-meal-open>.meal-head{margin-top:10px}
+#foodInputs .compact-meal-open label{margin:5px 0;font-size:12px}
+#foodInputs .compact-meal-open input:not([type=checkbox]),#foodInputs .compact-meal-open select{min-height:40px;padding:7px 8px}
+#foodInputs .compact-meal-open textarea{min-height:56px;padding:8px}
+#foodInputs .compact-meal-open .meal-quick-actions{margin:6px 0}
+
+/* Stage 33 / compact input pass: scope to food item editing only. */
+#foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 9px;
+  align-items:end;padding:9px;
+}
+#foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row > label{
+  min-width:0;margin:0;font-size:12px;line-height:1.25;
+}
+#foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row > label input,
+#foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row > select{
+  box-sizing:border-box;width:100%;min-width:0;min-height:36px;
+  padding:5px 7px;margin-top:3px;font-size:14px;
+}
+#foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row > label:first-child,
+#foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row > .food-entry-nested{
+  grid-column:1/-1;
+}
+#foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row > button{
+  width:auto;min-height:38px;margin:0;
+}
+#foodInputs .fixed-detail-editor .stage33-quantity-controls button{min-height:36px}
+@media(max-width:340px){
+ #foodInputs .fixed-detail-editor .stage33-item-details > .food-entry-row{grid-template-columns:minmax(0,1fr)}
+}
+
+/* Stage 33: secondary nutrition and provenance fields are available on demand. */
+#foodInputs .stage33-item-details .stage33-advanced-fields{grid-column:1/-1;min-width:0;border-top:1px solid #dce8e9;padding-top:5px}
+#foodInputs .stage33-item-details .stage33-advanced-fields>summary{cursor:pointer;font-size:12px;color:#246179;padding:8px 3px;min-height:34px}
+#foodInputs .stage33-item-details .stage33-advanced-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 9px;padding:6px 0}
+#foodInputs .stage33-item-details .stage33-advanced-grid>label{min-width:0;margin:0;font-size:12px}
+#foodInputs .stage33-item-details .stage33-advanced-grid input{box-sizing:border-box;width:100%;min-height:36px;padding:5px 7px;margin-top:3px;font-size:14px}
+@media(max-width:340px){#foodInputs .stage33-item-details .stage33-advanced-grid{grid-template-columns:1fr}}

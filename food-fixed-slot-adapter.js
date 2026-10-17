@@ -17,7 +17,14 @@ function setFixedMeal(day,existingDay,settings,id,structured){
  for(const key of FIELDS)nextLegacy[key]=valid(totals[key])?Number(totals[key]):'';
  nextLegacy.skipped=structured.skipped===true;
  nextLegacy.note=structured.note??nextLegacy.note??'';
- const out=DS.withMeal(day,existingDay,settings,id,structured);
+ const source=clone(day);
+ // A partially populated fixed-slot snapshot must accept edits to the other fixed meals.
+ if(Array.isArray(source.foodV2?.slots)&&!source.foodV2.slots.some(s=>s.slotId===id)){
+  const base=[['breakfast','朝食'],['lunch','昼食'],['dinner','夕食'],['snack','間食']];
+  const info=base.find(x=>x[0]===id);
+  source.foodV2.slots.push({slotId:id,slotName:info[1],slotOrder:base.findIndex(x=>x[0]===id),meal:null});
+ }
+ const out=DS.withMeal(source,existingDay,settings,id,structured);
  out.meals={...(out.meals||{}),[id]:nextLegacy};
  return out;
 }

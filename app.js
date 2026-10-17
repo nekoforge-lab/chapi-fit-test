@@ -577,18 +577,52 @@ function saveExtraMeal(id,values){
   if(['breakfast','lunch','dinner','snack'].includes(id))saved.meals[id]=C.clone(draft.meals[id]);
   savedDraft=JSON.stringify(saved);
   if(dayDirty())journalDraft();else clearJournal();
-  notice('食事明細を保存しました ✓');renderFood();renderEnergy();renderWeek();return true;
+  notice('食事明細を保存しました ✓');
+  if(meal===null){
+   // Rebuild the deleted meal, but retain the actual DOM and event closures of
+   // every other meal. Their item editors can contain unsaved in-memory rows.
+   const root=$('foodInputs');
+   const retained=new Map([...root.querySelectorAll(':scope > .meal-section')]
+    .filter(el=>el.dataset.slotId!==id).map(el=>[el.dataset.slotId,el]));
+   renderFood();
+   for(const fresh of [...root.querySelectorAll(':scope > .meal-section')]){
+    const original=retained.get(fresh.dataset.slotId);
+    if(original)fresh.replaceWith(original);
+   }
+  }else{
+   // Keep other meals' live editor closures and DOM intact: they may contain
+   // unsaved entries which are deliberately absent from draft.foodV2.
+   const section=[...$('foodInputs').querySelectorAll(':scope > .meal-section')]
+    .find(el=>el.dataset.slotId===id);
+   const state=section?.querySelector('.fixed-detail-editor .stage33-save-state')
+    ||section?.querySelector('.stage33-save-state');
+   if(state){state.textContent='保存済み ✓';state.closest('.stage33-savebar')?.classList.remove('stage33-unsaved');}
+   const opener=section?.querySelector(':scope > .compact-meal-toggle');
+   if(opener){
+    const label=section.querySelector(':scope > .meal-head h3, :scope > h3')?.textContent||'食事';
+    const adopted=meal.totalMode==='auto'?ChapiFoodTotalsBridge.adopted(meal):meal.manualTotal;
+    const kcal=adopted?.kcal;
+    const amount=meal.skipped?'食べなかった':
+     (kcal!==null&&kcal!==undefined&&kcal!==''&&Number.isFinite(Number(kcal))
+      ?Math.round(Number(kcal))+' kcal':'未記録');
+    opener.textContent=label+'　'+amount+
+     (meal.entries?.length?' · '+meal.entries.length+'品':'')+'　'+
+     (section.classList.contains('compact-meal-open')?'▲':'›');
+   }
+  }
+  renderFoodSummary();renderEnergy();renderWeek();return true;
  }catch(e){notice('保存できません：'+e.message);return false;}
 }
 function renderExtraMeals(root,includeFixed=false){
  const existing=Object.prototype.hasOwnProperty.call(store.days,current);
  const slots=DS.snapshot(draft,existing,store.foodSlotSettings||SL.defaults());
+ if(includeFixed){for(const [id,name] of C.meals)if(!slots.some(s=>s.slotId===id))slots.push({slotId:id,slotName:name,slotOrder:slots.length,meal:null});}
  for(const slot of slots.filter(s=>includeFixed?['breakfast','lunch','dinner','snack'].includes(s.slotId):!['breakfast','lunch','dinner','snack'].includes(s.slotId))){
   const wrap=document.createElement('div');wrap.className='meal meal-section';wrap.dataset.slotId=slot.slotId;
-  const title=document.createElement('h3');title.textContent=slot.slotName+(includeFixed?'・料理と食材の明細':'');wrap.append(title);
+  const title=document.createElement('h3');title.textContent=includeFixed?'食事の編集':slot.slotName;wrap.append(title);
   if(includeFixed){wrap.classList.add('fixed-detail-editor');wrap.hidden=true;}
   const prior=slot.meal;
-  const values={total:{kcal:'',p:'',f:'',c:''},skipped:!!prior?.skipped,note:prior?.note||'',
+  const values={total:{kcal:'',p:'',f:'',c:''},skipped:includeFixed?!!draft.meals?.[slot.slotId]?.skipped:!!prior?.skipped,note:includeFixed?(draft.meals?.[slot.slotId]?.note??prior?.note??''):(prior?.note||''),
    totalMode:prior?.totalMode==='auto'?'auto':'manual',entries:C.clone(prior?.entries||[])};
   for(const k of ['kcal','p','f','c'])values.total[k]=prior?.manualTotal?.[k]??(includeFixed?draft.meals?.[slot.slotId]?.[k]:'')??'';
   const skip=document.createElement('label');skip.className='check';const tick=document.createElement('input');tick.type='checkbox';tick.checked=values.skipped;
@@ -615,8 +649,54 @@ function renderExtraMeals(root,includeFixed=false){
     preview.textContent='採用合計（明細）: '+['kcal','p','f','c'].map(k=>k.toUpperCase()+' '+(result[k]===null?'不明':result[k])).join(' / ');
    }else preview.textContent='採用合計：手動入力値（明細は二重計上しません）';
   }
+  function rescaleLibraryIngredient(item){
+   const base=item.librarySnapshot;
+   if(!base||!Number.isFinite(Number(item.quantity))||Number(item.quantity)<0)return false;
+   // 料理ライブラリは一皿分の登録値。食材のみ登録基準量で比例換算する。
+   if(item.kind!=='ingredient'&&item.kind!=='dish')return false;
+   const isDish=item.kind==='dish';
+   if(isDish&&item.calculationMode==='ingredients'){window.ChapiFoodRecipe.update(item);return true;}
+   const baseAmount=isDish?1:Number(base.amount);
+   const baseUnit=isDish?'皿':base.unit;
+   if(!(baseAmount>0)||(item.unit&&baseUnit&&item.unit!==baseUnit))return false;
+   const factor=Number(item.quantity)/baseAmount;
+   for(const k of ['kcal','p','f','c']){
+    const value=base.nutrition?.[k];
+    const scaled=Number.isFinite(Number(value))&&value!==null&&value!==''?Math.round(Number(value)*factor*10000)/10000:null;
+    if(isDish)(item.estimate??={})[k]=scaled;else item[k]=scaled;
+   }
+   item.salt=base.salt?.status==='known'&&Number.isFinite(Number(base.salt.value))?Math.round(Number(base.salt.value)*factor*10000)/10000:null;
+   return true;
+  }
   function detailFields(line,item){
-   line.append(numberInput('数量（任意）',item.quantity??'',v=>{item.quantity=v===''?null:Number(v)},{step:'0.1'}));
+   line.append(numberInput('数量（任意）',item.quantity??'',v=>{
+    item.quantity=v===''?null:Number(v);
+    if(v!==''&&rescaleLibraryIngredient(item)){
+     for(const [label,key] of [['kcal','kcal'],['P','p'],['F','f'],['C','c'],['食塩相当量','salt']]){
+      const field=[...line.querySelectorAll('label')].find(el=>el.firstChild?.nodeType===3&&el.firstChild.textContent.trim().startsWith(label));
+      if(field){const input=field.querySelector('input');if(input)input.value=(item.kind==='dish'&&key!=='salt'?item.estimate?.[key]:item[key])??'';}
+     }
+    }
+    updatePreview();
+   },{step:'0.1'}));
+   // Keep quantity adjustments beside the quantity field, without opening nutrition inputs.
+   if(item.librarySnapshot){
+    const quantityLabel=[...line.querySelectorAll('label')].find(el=>el.firstChild?.textContent==='数量（任意）');
+    const quantityInput=quantityLabel?.querySelector('input');
+    if(quantityInput){
+     const controls=document.createElement('div');controls.className='stage33-quantity-controls';
+     const unitName=item.unit||'';const increment=unitName==='皿'||unitName==='個'||unitName==='本'?1:10;
+     for(const [label,delta] of [['−'+increment,-increment],['＋'+increment,increment]]){
+      const adjust=button(label,()=>{
+       const current=Number(quantityInput.value||0);
+       const next=Math.max(0,Math.round((current+delta)*10000)/10000);
+       quantityInput.value=String(next);quantityInput.dispatchEvent(new Event('input',{bubbles:true}));
+       quantityInput.dispatchEvent(new Event('change',{bubbles:true}));
+      },'outline');adjust.type='button';adjust.setAttribute('aria-label','数量を'+(delta>0?'増やす':'減らす')+'（'+increment+unitName+'）');controls.append(adjust);
+     }
+     quantityLabel.append(controls);
+    }
+   }
    const unit=textInput('単位（任意）',item.unit||'',v=>{item.unit=v});unit.querySelector('input').placeholder='g / ml / 個 など';line.append(unit);
    line.append(numberInput('食塩相当量（g・任意）',item.salt??'',v=>{item.salt=v===''?null:Number(v)},{step:'0.1'}));
    const source=textInput('数値の根拠（任意）',item.source||'',v=>{item.source=v});source.querySelector('input').placeholder='表示値 / 本人入力 / AI推定 など';line.append(source);
@@ -635,79 +715,281 @@ function renderExtraMeals(root,includeFixed=false){
    dialog.replaceChildren();
    const header=document.createElement('div');header.className='food-library-dialog-header';
    const title=document.createElement('h3');title.textContent='登録済みから選ぶ';
-   const close=button('閉じる ×',()=>dialog.close(),'outline');header.append(title,close);dialog.append(header);
+   const close=button('×',()=>dialog.close(),'outline');close.setAttribute('aria-label','閉じる');header.append(title,close);dialog.append(header);
    const body=document.createElement('div');body.className='food-library-body';dialog.append(body);
    const search=document.createElement('input');search.type='search';search.placeholder='料理・食材名を検索';search.setAttribute('aria-label','登録品目を検索');body.append(search);
+   const filter=document.createElement('select');filter.setAttribute('aria-label','登録品目の種類');for(const [v,t] of [['','種類を選択'],['dish','料理'],['ingredient','食材']]){const o=document.createElement('option');o.value=v;o.textContent=t;filter.append(o)}body.append(filter);
+   const category=document.createElement('select');category.setAttribute('aria-label','登録品目のカテゴリ');
+   const categories=[...new Set(items.flatMap(x=>[x.category,...(x.categories||[])].filter(Boolean)))].sort((a,b)=>String(a).localeCompare(String(b),'ja'));
+   for(const [v,t] of [['','すべてのカテゴリ'],...categories.map(x=>[x,x])]){const o=document.createElement('option');o.value=v;o.textContent=t;category.append(o)}
+   body.append(category);
    const results=document.createElement('div');body.append(results);
-   function draw(){results.replaceChildren();const q=search.value.trim().toLocaleLowerCase();const filtered=items.filter(x=>!q||[x.name,x.category,x.vendor,...(x.categories||[])].some(v=>String(v||'').toLocaleLowerCase().includes(q)));
-    if(!filtered.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='登録品目がありません';results.append(empty);return}
-    for(const item of filtered){const row=document.createElement('div');row.className='food-library-pick-row';const label=document.createElement('div');
+   function draw(){results.replaceChildren();const q=search.value.trim().toLocaleLowerCase();const filtered=items.filter(x=>(!filter.value||x.kind===filter.value)&&(!category.value||x.category===category.value||(x.categories||[]).includes(category.value))&&(!q||[x.name,x.category,x.vendor,...(x.categories||[])].some(v=>String(v||'').toLocaleLowerCase().includes(q)))).slice(0,40);
+    if(!filtered.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='種類を選ぶか、名前で検索してください';results.append(empty);return}
+    for(const item of (filter.value||category.value||q?filtered:[])){const row=document.createElement('div');row.className='food-library-pick-row';const label=document.createElement('div');
      const name=document.createElement('strong');name.textContent=item.name;
      const info=document.createElement('small');info.textContent=(item.kind==='dish'?'料理':'食材')+' · '+item.nutrition.kcal+'kcal / P '+item.nutrition.p+' F '+item.nutrition.f+' C '+item.nutrition.c;
-     label.append(name,info);const add=button('追加',()=>{try{const saved=lib.snapshot(store,item.id);const nutrient=saved.nutrition;
+     label.append(name,info);const add=button('選択',()=>{try{const saved=lib.snapshot(store,item.id);const nutrient=saved.nutrition;
        const salt=saved.salt?.status==='known'?saved.salt.value:null;
-       const base={kind:saved.kind,name:saved.name,quantity:saved.amount??null,unit:saved.unit||'',salt,source:'登録ライブラリ',libraryId:saved.id,librarySnapshot:saved};
-       const entry=saved.kind==='dish'?{...base,calculationMode:'estimate',estimate:{...nutrient},ingredients:[]}:{...base,...nutrient};
-       values.entries.push(entry);drawEntries();dialog.close();wrap.hidden=false;
-      }catch(e){notice('追加できません：'+e.message)}},'outline');row.append(label,add);results.append(row)}
+       const base={kind:saved.kind,name:saved.name,quantity:saved.kind==='dish'?1:(saved.amount??null),unit:saved.kind==='dish'?'皿':(saved.unit||''),salt,source:'登録ライブラリ',libraryId:saved.id,librarySnapshot:saved};
+       const entry=saved.kind==='dish'?window.ChapiFoodRecipe.makeMealDish(saved):{...base,...nutrient};
+       values.entries.push(entry);drawEntries(values.entries.length-1);dialog.close();wrap.hidden=false;open.textContent='詳細を閉じる';open.setAttribute('aria-expanded','true');
+       // Take the user directly to the selected item's quantity, without opening the keyboard.
+       const selectedRow=entriesRoot.querySelector('.stage33-item-details[data-entry-index="'+(values.entries.length-1)+'"]');
+       if(selectedRow){selectedRow.open=true;selectedRow.scrollIntoView({block:'nearest'});}
+
+      }catch(e){notice('追加できません：'+e.message)}},'outline');add.classList.add('food-picker-select');row.append(label);add.hidden=true;row.append(add);row.setAttribute('role','button');row.tabIndex=0;row.onclick=e=>{if(e.target!==add)add.click()};row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();add.click()}};results.append(row)}
    }
-   search.oninput=draw;draw();dialog.showModal();
+   search.oninput=draw;filter.onchange=draw;category.onchange=draw;draw();dialog.showModal();
   }
-  function drawEntries(){
+  // Preserve open editors when their fields trigger a re-render.
+  // Explicit index wins for actions that should open a particular item.
+  // Associate disclosure state with the actual entry object, not its row index.
+  // Deleting or reordering an entry must not transfer an open editor to another.
+  const openEntryObjects=new WeakSet();
+  const openAdvancedObjects=new WeakSet();
+  function drawEntries(expandedIndex=-1){
+   for(const el of entriesRoot.querySelectorAll(':scope > details.stage33-item-details')){
+    const entry=el._stage33Entry;
+    if(!entry)continue;
+    if(el.open)openEntryObjects.add(entry);else openEntryObjects.delete(entry);
+    const advanced=el.querySelector('.stage33-advanced-fields');
+    if(advanced?.open)openAdvancedObjects.add(entry);else openAdvancedObjects.delete(entry);
+   }
+   if(expandedIndex>=0&&values.entries[expandedIndex])openEntryObjects.add(values.entries[expandedIndex]);
    entriesRoot.replaceChildren();const heading=document.createElement('h4');heading.textContent='料理・食材の明細';entriesRoot.append(heading);
    values.entries.forEach((entry,index)=>{
     const line=document.createElement('div');line.className='food-entry-row';
     const name=textInput(entry.kind==='dish'?'料理名':'食材名',entry.name||'',v=>{entry.name=v});line.append(name);detailFields(line,entry);
     if(entry.kind==='dish'){
      const select=document.createElement('select');for(const [value,label] of [['estimate','料理の推定合計'],['ingredients','材料の合計']]){const option=document.createElement('option');option.value=value;option.textContent=label;select.append(option)}
-     select.value=entry.calculationMode||'estimate';select.onchange=()=>{entry.calculationMode=select.value;drawEntries()};line.append(select);
+     select.value=entry.calculationMode||'estimate';select.onchange=()=>{entry.calculationMode=select.value;if(select.value==='ingredients'&&entry.librarySnapshot)window.ChapiFoodRecipe.update(entry);drawEntries(index)};line.append(select);
      if(select.value==='ingredients'){
+      if(entry.librarySnapshot){line.append(numberInput('出来上がり皿数',entry.recipeServings||1,v=>{entry.recipeServings=Number(v);if(entry.recipeServings>0){window.ChapiFoodRecipe.update(entry);updatePreview()}},{step:'0.1'}));}
       const nested=document.createElement('div');nested.className='food-entry-nested';
-      (entry.ingredients||[]).forEach((ing,j)=>{const sub=document.createElement('div');sub.className='food-entry-row';sub.append(textInput('材料名',ing.name||'',v=>{ing.name=v}));detailFields(sub,ing);for(const [k,label] of [['kcal','kcal'],['p','P'],['f','F'],['c','C']]){sub.append(numberInput(label,ing[k]??'',v=>{ing[k]=v===''?null:Number(v);updatePreview()}))}sub.append(button('材料削除',()=>{entry.ingredients.splice(j,1);drawEntries()},'outline'));nested.append(sub)});
-      nested.append(button('＋ 材料を追加',()=>{(entry.ingredients??=[]).push({name:'',kcal:null,p:null,f:null,c:null});drawEntries()},'outline'));line.append(nested);
+      (entry.ingredients||[]).forEach((ing,j)=>{const sub=document.createElement('div');sub.className='food-entry-row';sub.append(textInput('材料名',ing.name||'',v=>{ing.name=v}));detailFields(sub,ing);
+       if(ing.librarySnapshot?.kind==='ingredient'){
+        const quantityField=sub.querySelector('input[type="number"]');
+        // detailFields supplies the quantity input; refresh the snapshot-based nutrients on changes.
+        const qtyInputs=[...sub.querySelectorAll('label')];
+        const qtyLabel=qtyInputs.find(el=>el.textContent.includes('数量'));
+        const qtyInput=qtyLabel?.querySelector('input');
+        if(qtyInput){qtyInput.addEventListener('change',()=>{try{const updated=window.ChapiFoodRecipe.resizeIngredient(ing,qtyInput.value);Object.assign(ing,updated);if(entry.recipeServings>0)window.ChapiFoodRecipe.update(entry);drawEntries(index)}catch(e){notice('材料の分量を更新できません：'+e.message)}})}
+       }
+       for(const [k,label] of [['kcal','kcal'],['p','P'],['f','F'],['c','C']]){sub.append(numberInput(label,ing[k]??'',v=>{ing[k]=v===''?null:Number(v);if(entry.librarySnapshot&&entry.recipeServings>0)window.ChapiFoodRecipe.update(entry);updatePreview()}))}sub.append(button('材料削除',()=>{entry.ingredients.splice(j,1);if(entry.librarySnapshot&&entry.recipeServings>0)window.ChapiFoodRecipe.update(entry);drawEntries(index)},'outline'));nested.append(sub)});
+      nested.append(button('＋ 材料を追加',()=>{(entry.ingredients??=[]).push({name:'',kcal:null,p:null,f:null,c:null});if(entry.librarySnapshot&&entry.recipeServings>0)window.ChapiFoodRecipe.update(entry);drawEntries(index)},'outline'));
+      if(entry.librarySnapshot){nested.append(button('食材ライブラリから材料を選ぶ',()=>{
+       let foods;try{foods=window.ChapiFoodLibraryStore.search(store,{kind:'ingredient'})}catch(e){notice('食材を読み込めません：'+e.message);return}
+       const picker=document.createElement('dialog');picker.className='food-library-dialog';const header=document.createElement('div');header.className='food-library-dialog-header';const title=document.createElement('h3');title.textContent='材料を選ぶ';const close=button('×',()=>picker.close(),'outline');header.append(title,close);picker.append(header);
+       const body=document.createElement('div');body.className='food-library-body';const search=document.createElement('input');search.type='search';search.placeholder='食材名を検索';body.append(search);const results=document.createElement('div');body.append(results);picker.append(body);
+       function render(){results.replaceChildren();const q=search.value.trim().toLocaleLowerCase();for(const food of foods.filter(f=>f.name.toLocaleLowerCase().includes(q)).slice(0,30)){const row=button(food.name+' · '+(food.amount??'?')+(food.unit||''),()=>{try{const updated=window.ChapiFoodRecipe.addIngredient(entry,food);values.entries[index]=updated;picker.close();drawEntries(index)}catch(e){notice('追加できません：'+e.message)}},'outline');results.append(row)}if(!results.children.length){const msg=document.createElement('p');msg.textContent='該当する食材がありません';results.append(msg)}}
+       picker.addEventListener('close',()=>picker.remove());search.oninput=render;render();document.body.append(picker);picker.showModal();
+      },'outline'));}line.append(nested);
      }
     }
     if(entry.kind!=='dish'||entry.calculationMode!=='ingredients'){
      const target=entry.kind==='dish'?(entry.estimate??={kcal:null,p:null,f:null,c:null}):entry;
      for(const [k,label] of [['kcal','kcal'],['p','P'],['f','F'],['c','C']])line.append(numberInput(label,target[k]??'',v=>{target[k]=v===''?null:Number(v);updatePreview()}));
     }
-    line.append(button('削除',()=>{values.entries.splice(index,1);drawEntries()},'outline'));entriesRoot.append(line);
+    // Progressive disclosure: quantity and calories stay immediately accessible.
+    // Move optional metadata and PFC into a native details panel without replacing
+    // inputs or handlers; their values still participate in the same save path.
+    const advanced=document.createElement('details');advanced.className='stage33-advanced-fields';
+    const advancedSummary=document.createElement('summary');advancedSummary.textContent='栄養・詳細を編集';advanced.append(advancedSummary);advanced.open=openAdvancedObjects.has(entry);
+    const advancedGrid=document.createElement('div');advancedGrid.className='stage33-advanced-grid';
+    for(const field of [...line.children]){
+     if(field.tagName!=='LABEL')continue;
+     const title=field.firstChild?.nodeType===3?field.firstChild.textContent.trim():'';
+     if(['単位（任意）','食塩相当量（g・任意）','数値の根拠（任意）','P','F','C'].includes(title))advancedGrid.append(field);
+    }
+    if(advancedGrid.children.length){advanced.append(advancedGrid);line.append(advanced)}
+    line.append(button('削除',()=>{values.entries.splice(index,1);drawEntries()},'outline'));
+    // Stage 33: keep the list scannable; open an individual row only when editing.
+    const itemDetails=document.createElement('details');itemDetails.className='stage33-item-details';
+    const itemSummary=document.createElement('summary');itemSummary.className='stage33-item-summary';
+    const itemName=document.createElement('strong');const itemMeta=document.createElement('span');
+    const describeItem=()=>{
+     itemName.textContent=entry.name?.trim()||'名称未入力';
+     const nutrition=entry.kind==='dish'?(entry.calculationMode==='ingredients'?entry.estimate:entry.estimate):entry;
+     const kcal=nutrition?.kcal;
+     itemMeta.textContent=(entry.quantity??'—')+(entry.unit||'')+' · '+(kcal===null||kcal===undefined||kcal===''?'栄養値未入力':kcal+' kcal');
+    };describeItem();itemSummary.append(itemName,itemMeta);itemDetails.append(itemSummary,line);
+    // Keep unfinished, manually added rows expanded to avoid hiding required fields.
+    itemDetails.dataset.entryIndex=String(index);itemDetails._stage33Entry=entry;
+    itemDetails.open=openEntryObjects.has(entry)||(!entry.librarySnapshot&&!entry.name?.trim());
+    line.addEventListener('input',describeItem);entriesRoot.append(itemDetails);
    });
    const actions=document.createElement('div');actions.className='meal-quick-actions';
-   actions.append(button('＋ 食材',()=>{values.entries.push({kind:'ingredient',name:'',kcal:null,p:null,f:null,c:null});drawEntries()},'outline'));
-   actions.append(button('＋ 料理',()=>{values.entries.push({kind:'dish',name:'',calculationMode:'estimate',estimate:{kcal:null,p:null,f:null,c:null},ingredients:[]});drawEntries()},'outline'));
+   actions.append(button('＋ 食材',()=>{values.entries.push({kind:'ingredient',name:'',kcal:null,p:null,f:null,c:null});drawEntries(values.entries.length-1)},'outline'));
+   actions.append(button('＋ 料理',()=>{values.entries.push({kind:'dish',name:'',calculationMode:'estimate',estimate:{kcal:null,p:null,f:null,c:null},ingredients:[]});drawEntries(values.entries.length-1)},'outline'));
    actions.append(button('登録済みから選ぶ',chooseFromLibrary,'outline'));
    entriesRoot.append(actions);updatePreview();
   }
   tick.onchange=updatePreview;drawEntries();
   wrap.append(textInput('備考（任意）',values.note,v=>{values.note=v},true));
-  wrap.append(button('保存',()=>{
+  const saveStructured=()=>{
+   if(includeFixed&&values.totalMode==='manual'){for(const k of ['kcal','p','f','c'])values.total[k]=draft.meals?.[slot.slotId]?.[k]??values.total[k];values.note=draft.meals?.[slot.slotId]?.note??values.note;}
+   if(includeFixed)values.skipped=!!draft.meals?.[slot.slotId]?.skipped;
    const isNum=v=>v===null||v===''||(Number.isFinite(Number(v))&&Number(v)>=0);
    if(!['kcal','p','f','c'].every(k=>isNum(values.total[k]))){notice('栄養値は0以上の有限数で入力してください');return}
    for(const e of values.entries){
+    if(e.kind==='dish'&&e.calculationMode==='ingredients'&&e.librarySnapshot&&(!(Number(e.recipeServings)>0)||e.unit!=='皿')){notice('出来上がり皿数を確認してください');return}
     if(!validDetail(e)||(e.kind==='dish'&&(e.ingredients||[]).some(i=>!validDetail(i)))){notice('数量・食塩相当量は0以上の数値で入力してください');return}
     if(!e.name?.trim()){notice('料理・食材名を入力してください');return}
     const list=e.kind==='dish'?(e.calculationMode==='ingredients'?e.ingredients:[e.estimate]):[e];
     if(!Array.isArray(list)||list.some(v=>!v||['kcal','p','f','c'].some(k=>!isNum(v[k])))){notice('明細の栄養値を確認してください');return}
     if(e.kind==='dish'&&e.calculationMode==='ingredients'&&list.some(v=>!v.name?.trim())){notice('材料名を入力してください');return}
    }
-   if(!values.skipped&&values.totalMode==='auto'&&!values.entries.length){notice('自動計算には明細を追加してください');return}
-   if(!values.skipped&&values.totalMode==='manual'&&!['kcal','p','f','c'].some(k=>C.nonnegative(values.total[k]))&&!values.note.trim()&&!values.entries.length){notice('未入力です。削除する場合は削除ボタンを使ってください');return}
+   const storedMeal=DS.snapshot(C.normalizeDay(store.days[current]),Object.prototype.hasOwnProperty.call(store.days,current),store.foodSlotSettings||SL.defaults()).find(s=>s.slotId===slot.slotId)?.meal;
+   if(!values.skipped&&!values.entries.length&&storedMeal?.entries?.length&&
+      (values.totalMode==='auto'||(!['kcal','p','f','c'].some(k=>C.nonnegative(values.total[k]))&&!values.note.trim()))){
+    if(confirm(slot.slotName+'の最後の品目を削除しました。この食事を未記録に戻しますか？\nカロリー・PFC・備考も削除されます。'))saveExtraMeal(slot.slotId,null);
+    return;
+   }
+   if(!values.skipped&&values.totalMode==='auto'&&!values.entries.length){
+    // An existing itemized meal with its final item removed must not silently
+    // retain the old item after Save. Reuse the established unrecord action.
+    const savedSlot=DS.snapshot(C.normalizeDay(store.days[current]),Object.prototype.hasOwnProperty.call(store.days,current),store.foodSlotSettings||SL.defaults()).find(s=>s.slotId===slot.slotId);
+    if(savedSlot?.meal){
+     if(confirm(slot.slotName+'の最後の品目を削除しました。この食事を未記録に戻しますか？\nカロリー・PFC・備考も削除されます。'))saveExtraMeal(slot.slotId,null);
+    }else notice('自動計算には明細を追加してください');
+    return;
+   }
+   if(!values.skipped&&values.totalMode==='manual'&&!['kcal','p','f','c'].some(k=>C.nonnegative(values.total[k]))&&!values.note.trim()&&!values.entries.length&&!prior){notice('未入力です。削除する場合は削除ボタンを使ってください');return}
    const total=Object.fromEntries(['kcal','p','f','c'].map(k=>[k,C.nonnegative(values.total[k])?Number(values.total[k]):null]));
    saveExtraMeal(slot.slotId,{...values,total});
-  },'meal-save'));
+  };
+  const saveBar=document.createElement('div');saveBar.className='stage33-savebar';
+  const saveState=document.createElement('span');saveState.className='stage33-save-state';saveState.setAttribute('role','status');saveState.textContent='変更後は保存してください';
+  const detailSave=button(includeFixed?'この食事を保存':'保存',saveStructured,'meal-save');
+  saveBar.append(saveState,detailSave);wrap.append(saveBar);
+  // Do not suggest that edits have been persisted until the existing save path succeeds.
+  wrap.addEventListener('input',()=>{saveState.textContent='未保存の変更があります';saveBar.classList.add('stage33-unsaved')});
+  wrap.addEventListener('change',()=>{saveState.textContent='未保存の変更があります';saveBar.classList.add('stage33-unsaved')});
   if(prior)wrap.append(button('削除して未記録に戻す',()=>{if(confirm(slot.slotName+'の記録を削除しますか？'))saveExtraMeal(slot.slotId,null)},'outline'));
   if(includeFixed){
    const fixed=document.querySelector('#foodInputs .meal[data-slot-id="'+slot.slotId+'"]');
    if(fixed){
-    const open=button('料理・食材の明細を編集',()=>{wrap.hidden=!wrap.hidden},'outline');
-    const addFromLibrary=button('＋ 料理追加',()=>{wrap.hidden=false;chooseFromLibrary()},'outline');
-    fixed.append(addFromLibrary,open,wrap);
+    // The legacy quick inputs and the mounted structured editor share one
+    // manual-total draft. Synchronize without rebuilding other meal editors.
+    fixed.addEventListener('chapi:manual-total-sync',()=>{
+     if(values.totalMode!=='manual')return;
+     for(const k of ['kcal','p','f','c']){
+      const v=draft.meals?.[slot.slotId]?.[k]??'';
+      values.total[k]=v;
+      const input=grid.querySelector('[data-nutrient="'+k+'"] input');
+      if(input)input.value=v;
+     }
+     updatePreview();
+    });
+    const modeBar=document.createElement('div');modeBar.className='stage33-modebar';const adoptedTotal=document.createElement('span');adoptedTotal.className='stage33-adopted-total';const modeText=document.createElement('span');modeText.textContent='計算方法';const quickMode=document.createElement('select');quickMode.setAttribute('aria-label',slot.slotName+'の計算方法');for(const [v,t] of [['manual','合計を手入力'],['auto','品目計算']]){const o=document.createElement('option');o.value=v;o.textContent=t;quickMode.append(o)}quickMode.value=values.totalMode;quickMode.onchange=()=>{
+     values.totalMode=quickMode.value;modeSelect.value=quickMode.value;
+     if(values.totalMode==='manual'){
+      // The projected auto total must never replace the independently kept manual draft.
+      for(const k of ['kcal','p','f','c']){
+       const restored=values.total[k]??'';
+       draft.meals[slot.slotId]={...(draft.meals[slot.slotId]||{}),[k]:restored};
+       const input=fixed.querySelector('#food_'+slot.slotId+'_'+k);
+       if(input)input.value=restored;
+      }
+     }
+     updatePreview();updateAdoptedTotal();renderFoodSummary();
+    };modeBar.append(modeText,quickMode);fixed.insertBefore(modeBar,fixed.querySelector('.food-grid'));
+    const summary=document.createElement('div');summary.className='stage33-items-summary';function refreshSummary(){
+      summary.replaceChildren();
+      if(!values.entries.length){const empty=document.createElement('span');empty.textContent='料理・食材は未登録';summary.append(empty);return}
+      values.entries.forEach((entry,index)=>{
+       const item=document.createElement('button');item.type='button';item.className='stage33-meal-item';
+       const name=document.createElement('strong');name.textContent=entry.name||'名称未入力';
+       const detail=document.createElement('span');
+       const quantity=entry.quantity??entry.amount;
+       const unit=entry.unit||'';
+       const amount=quantity!==null&&quantity!==undefined&&quantity!==''?String(quantity)+unit:'';
+       const kcal=entry.estimate?.kcal??entry.kcal;
+       detail.textContent=[amount,kcal!==null&&kcal!==undefined&&kcal!==''?String(kcal)+' kcal':''].filter(Boolean).join(' · ');
+       item.append(name,detail);
+       item.setAttribute('aria-label',(entry.name||'名称未入力')+'を編集');
+       item.addEventListener('click',()=>{
+        wrap.hidden=false;open.textContent='詳細を閉じる';open.setAttribute('aria-expanded','true');
+        const rows=wrap.querySelectorAll('.stage33-item-details');
+        const target=rows[index];
+        if(target){target.open=true;target.scrollIntoView({block:'nearest',behavior:'smooth'})}
+        else wrap.scrollIntoView({block:'nearest',behavior:'smooth'});
+       });
+       summary.append(item);
+      });
+     }refreshSummary();fixed.insertBefore(summary,fixed.querySelector('.food-grid'));fixed.insertBefore(adoptedTotal,fixed.querySelector('.food-grid'));const updateAdoptedTotal=()=>{if(values.totalMode==='auto'){const t=ChapiFoodTotalsBridge.adopted({totalMode:'auto',entries:values.entries,skipped:values.skipped});adoptedTotal.textContent='品目合計：'+(t.kcal===null?'不明':t.kcal+' kcal')+' / P '+(t.p??'不明')+' F '+(t.f??'不明')+' C '+(t.c??'不明');}else{adoptedTotal.textContent='合計手入力（品目は二重計上しません）';}};updateAdoptedTotal();
+    const actions=document.createElement('div');actions.className='stage33-actions';const addFromLibrary=button('＋ 料理・食材を追加',()=>{wrap.hidden=false;chooseFromLibrary()},'outline');const open=button('すべての品目を編集',()=>{wrap.hidden=!wrap.hidden;open.textContent=wrap.hidden?'すべての品目を編集':'詳細を閉じる';open.setAttribute('aria-expanded',String(!wrap.hidden))},'outline');open.setAttribute('aria-expanded','false');actions.append(addFromLibrary,open);fixed.insertBefore(actions,fixed.querySelector('.food-grid'));fixed.append(wrap);
+    const originalDraw=drawEntries;drawEntries=function(expandedIndex=-1){originalDraw(expandedIndex);refreshSummary();updateAdoptedTotal()};
+    // Keep the compact card in sync with edits that do not redraw the detail editor.
+    wrap.addEventListener('input',()=>{refreshSummary();updateAdoptedTotal()});
+    wrap.addEventListener('change',()=>{refreshSummary();updateAdoptedTotal()});
+    const fixedSave=fixed.querySelector('.meal-head .meal-save');
+    if(fixedSave){
+     fixedSave.onclick=saveStructured;
+     fixedSave.textContent='保存';
+    }
+    // One save path for manual totals and item-calculated totals; never route
+    // structured records through the legacy saveOneMeal guard.
+    quickMode.addEventListener('change',()=>{
+     updatePreview();
+     if(values.totalMode==='manual'){wrap.hidden=true;open.textContent='すべての品目を編集';open.setAttribute('aria-expanded','false');}
+    });
+    // The visible meal card is the authoritative editor for fixed-slot totals.
+    grid.hidden=true;
+    modeRow.hidden=true;
+    skip.hidden=true;
+    const detailNote=wrap.querySelector('.meal-note');
+    if(detailNote)detailNote.hidden=true;
+
+
    }
   }else root.append(wrap);
  }
 }
-function renderFood(){const totals=C.foodTotals(draft);$('foodDate').textContent=current;$('foodInputs').innerHTML='';const existing=Object.prototype.hasOwnProperty.call(store.days,current);const daySlots=DS.snapshot(draft,existing,store.foodSlotSettings||SL.defaults());const slotById=new Map(daySlots.map(s=>[s.slotId,s]));for(const [key,name] of C.meals){const wrap=document.createElement('div');wrap.className='meal meal-section';wrap.dataset.slotId=key;const head=document.createElement('div');head.className='meal-head';const heading=document.createElement('h3');heading.textContent=slotById.get(key)?.slotName||name;head.append(heading);const skip=document.createElement('label');skip.className='check meal-skip';const skipInput=document.createElement('input');skipInput.type='checkbox';skipInput.checked=!!draft.meals?.[key]?.skipped;skipInput.onchange=()=>{draft.meals[key]={...(draft.meals[key]||{}),skipped:skipInput.checked};renderFood();renderEnergy()};skip.append(skipInput,'食べなかった');head.append(skip);const mealSave=button('保存',()=>saveOneMeal(key),'meal-save');head.append(mealSave);wrap.append(head);const mealActions=document.createElement('div');mealActions.className='meal-quick-actions';mealActions.append(button('↩ 前日の食事をコピー',()=>copyPreviousMeal(key),'meal-copy'),button('削除',()=>deleteOneMeal(key),'meal-delete'));wrap.append(mealActions);const grid=document.createElement('div');grid.className='food-grid';if(skipInput.checked)grid.classList.add('meal-disabled');for(const [field,label] of [['kcal','kcal'],['p','P（g）'],['f','F（g）'],['c','C（g）']]){const inp=numberInput(label,draft.meals?.[key]?.[field],v=>{draft.meals[key]={...(draft.meals[key]||{}),[field]:v,aiStale:Array.isArray(draft.meals[key]?.aiItems)&&draft.meals[key].aiItems.length>0?true:draft.meals[key]?.aiStale};renderFoodSummary()});inp.querySelector('input').id=`food_${key}_${field}`;inp.querySelector('input').disabled=skipInput.checked||daySlots.find(s=>s.slotId===key)?.meal?.totalMode==='auto';grid.append(inp)}wrap.append(grid);const noteField=textInput('備考（任意）',draft.meals?.[key]?.note||'',v=>{draft.meals[key]={...(draft.meals[key]||{}),note:v}},true);noteField.classList.add('meal-note');noteField.querySelector('textarea').id=`food_${key}_note`;noteField.querySelector('textarea').placeholder='料理名・量・食事の状況など';wrap.append(noteField);aiItemEditor(key,wrap);$('foodInputs').append(wrap)}renderExtraMeals($('foodInputs'));renderExtraMeals($('foodInputs'),true);const root=$('foodInputs');const nodes=[...root.children];const orders=new Map(daySlots.map((s,i)=>[s.slotId,i]));nodes.sort((a,b)=>(orders.get(a.dataset.slotId)??1000)-(orders.get(b.dataset.slotId)??1000));root.append(...nodes);$('foodComplete').checked=!!draft.foodComplete;renderFoodSummary()}
+function renderFood(){const totals=C.foodTotals(draft);$('foodDate').textContent=current;$('foodInputs').innerHTML='';const existing=Object.prototype.hasOwnProperty.call(store.days,current);const daySlots=DS.snapshot(draft,existing,store.foodSlotSettings||SL.defaults());const slotById=new Map(daySlots.map(s=>[s.slotId,s]));for(const [key,name] of C.meals){const wrap=document.createElement('div');wrap.className='meal meal-section';wrap.dataset.slotId=key;const head=document.createElement('div');head.className='meal-head';const heading=document.createElement('h3');heading.textContent=slotById.get(key)?.slotName||name;head.append(heading);const skip=document.createElement('label');skip.className='check meal-skip';const skipInput=document.createElement('input');skipInput.type='checkbox';skipInput.checked=!!draft.meals?.[key]?.skipped;skipInput.onchange=()=>{draft.meals[key]={...(draft.meals[key]||{}),skipped:skipInput.checked};renderFood();renderEnergy()};skip.append(skipInput,'食べなかった');head.append(skip);const mealSave=button('保存',()=>saveOneMeal(key),'meal-save');head.append(mealSave);wrap.append(head);const mealActions=document.createElement('div');mealActions.className='meal-quick-actions';mealActions.append(button('↩ 前日の食事をコピー',()=>copyPreviousMeal(key),'meal-copy'),button('削除',()=>deleteOneMeal(key),'meal-delete'));wrap.append(mealActions);const grid=document.createElement('div');grid.className='food-grid';if(skipInput.checked)grid.classList.add('meal-disabled');for(const [field,label] of [['kcal','kcal'],['p','P（g）'],['f','F（g）'],['c','C（g）']]){const inp=numberInput(label,draft.meals?.[key]?.[field],v=>{draft.meals[key]={...(draft.meals[key]||{}),[field]:v,aiStale:Array.isArray(draft.meals[key]?.aiItems)&&draft.meals[key].aiItems.length>0?true:draft.meals[key]?.aiStale};wrap.dispatchEvent(new CustomEvent('chapi:manual-total-sync'));renderFoodSummary()});inp.querySelector('input').id=`food_${key}_${field}`;inp.querySelector('input').disabled=skipInput.checked||daySlots.find(s=>s.slotId===key)?.meal?.totalMode==='auto';grid.append(inp)}wrap.append(grid);const noteField=textInput('備考（任意）',draft.meals?.[key]?.note||'',v=>{draft.meals[key]={...(draft.meals[key]||{}),note:v}},true);noteField.classList.add('meal-note');noteField.querySelector('textarea').id=`food_${key}_note`;noteField.querySelector('textarea').placeholder='料理名・量・食事の状況など';wrap.append(noteField);aiItemEditor(key,wrap);$('foodInputs').append(wrap)}renderExtraMeals($('foodInputs'));renderExtraMeals($('foodInputs'),true);const root=$('foodInputs');const nodes=[...root.children];const orders=new Map(daySlots.map((s,i)=>[s.slotId,i]));nodes.sort((a,b)=>(orders.get(a.dataset.slotId)??1000)-(orders.get(b.dataset.slotId)??1000));root.append(...nodes);$('foodComplete').checked=!!draft.foodComplete;renderFoodSummary()}
+// Stage 33 UI iteration: presentation-only meal overview. The existing editors and
+// save handlers remain mounted and are revealed on demand; no stored schema changes.
+let focusedFoodMeal=null;
+const renderFoodBeforeCompact=renderFood;
+renderFood=function(){
+ renderFoodBeforeCompact();
+ const root=$('foodInputs');
+ for(const section of root.querySelectorAll(':scope > .meal-section:not(.fixed-detail-editor)')){
+  const id=section.dataset.slotId;
+  const title=section.querySelector(':scope > .meal-head h3, :scope > h3');
+  const label=title?.textContent||'食事';
+  const isOpen=focusedFoodMeal===id;
+  section.classList.add('compact-meal');
+  section.classList.toggle('compact-meal-open',isOpen);
+  const opener=document.createElement('button');
+  opener.type='button';opener.className='compact-meal-toggle';
+  opener.setAttribute('aria-expanded',String(isOpen));
+  const meal=DS.snapshot(draft,Object.prototype.hasOwnProperty.call(store.days,current),store.foodSlotSettings||SL.defaults()).find(x=>x.slotId===id)?.meal;
+  const total=meal?.totalMode==='auto'?ChapiFoodTotalsBridge.adopted(meal):null;
+  const legacy=draft.meals?.[id];
+  const kcal=total?.kcal??legacy?.kcal;
+  const amount=(kcal!==''&&kcal!==null&&kcal!==undefined&&Number.isFinite(Number(kcal)))?`${Math.round(Number(kcal))} kcal`:'未記録';
+  const count=Array.isArray(meal?.entries)?meal.entries.length:0;
+  opener.textContent=`${label}　${meal?.skipped||legacy?.skipped?'食べなかった':amount}${count?' · '+count+'品':''}　${isOpen?'▲':'›'}`;
+  opener.onclick=()=>{
+   // Visibility-only navigation: rebuilding the food editor here would discard
+   // unsaved structured-item edits held in the live editor closures.
+   const nextOpen=!section.classList.contains('compact-meal-open');
+   for(const other of root.querySelectorAll(':scope > .compact-meal')){
+    const active=other===section&&nextOpen;
+    other.classList.toggle('compact-meal-open',active);
+    const toggle=other.querySelector(':scope > .compact-meal-toggle');
+    if(toggle){
+     toggle.setAttribute('aria-expanded',String(active));
+     toggle.textContent=toggle.textContent.replace(/[▲›]$/,active?'▲':'›');
+    }
+   }
+   focusedFoodMeal=nextOpen?id:null;
+  };
+  section.prepend(opener);
+ }
+};
 function renderFoodSummary(){const t=C.foodTotals(draft),targets=store.foodTargets||{},root=$('foodSummary');root.innerHTML='';for(const [f,label,unit] of [['kcal','摂取カロリー','kcal'],['p','タンパク質 P','g'],['f','脂質 F','g'],['c','炭水化物 C','g']]){const box=document.createElement('div');box.className='food-stat';const target=Number(targets[f]);box.innerHTML=`<span class="label">${label}</span><strong>${t.count[f]?round(t.total[f],1)+' <small>'+unit+'</small>':'未記録'}</strong><progress max="100" value="${target?Math.min(100,t.total[f]/target*100):0}"></progress><small>目標 ${Number.isFinite(target)?round(target,1)+' '+unit:'未設定'}${Number.isFinite(target)?'<br>残り '+round(target-t.total[f],1)+' '+unit:''}</small>`;root.append(box)}}
 function dayReport(day,d){
  // An untouched, unsaved draft is not a recorded day. Keep saved records even if empty.

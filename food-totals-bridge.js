@@ -6,7 +6,7 @@ const valid=v=>v!==''&&v!==null&&v!==undefined&&Number.isFinite(Number(v))&&Numb
 const empty=()=>({kcal:0,p:0,f:0,c:0});
 function nutrients(src){const out={};for(const k of FIELDS)out[k]=valid(src?.[k])?Number(src[k]):null;return out;}
 function entryValues(entry){if(entry.kind==='dish'){
- if(entry.calculationMode==='ingredients')return addEntries(entry.ingredients||[]);
+ if(entry.calculationMode==='ingredients'){if(entry.recipeServings!==undefined&&entry.recipeServings!==null){const v=addEntries(entry.ingredients||[]);const servings=Number(entry.recipeServings),eaten=Number(entry.quantity);if(!(servings>0)||!(eaten>=0)||entry.unit!=='皿')throw Error('皿数が不正');return Object.fromEntries(FIELDS.map(k=>[k,v[k]===null?null:Math.round(v[k]*eaten/servings*10000)/10000]));}return addEntries(entry.ingredients||[]);}
  return nutrients(entry.estimate);
  }return nutrients(entry);
 }
