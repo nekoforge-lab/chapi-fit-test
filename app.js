@@ -621,6 +621,7 @@ function renderExtraMeals(root,includeFixed=false){
   const wrap=document.createElement('div');wrap.className='meal meal-section';wrap.dataset.slotId=slot.slotId;
   const title=document.createElement('h3');title.textContent=includeFixed?'食事の編集':slot.slotName;wrap.append(title);
   if(includeFixed){wrap.classList.add('fixed-detail-editor');wrap.hidden=true;}
+  let detailToggleButton=null;
   const prior=slot.meal;
   const values={total:{kcal:'',p:'',f:'',c:''},skipped:includeFixed?!!draft.meals?.[slot.slotId]?.skipped:!!prior?.skipped,note:includeFixed?(draft.meals?.[slot.slotId]?.note??prior?.note??''):(prior?.note||''),
    totalMode:prior?.totalMode==='auto'?'auto':'manual',entries:C.clone(prior?.entries||[])};
@@ -733,7 +734,7 @@ function renderExtraMeals(root,includeFixed=false){
        const salt=saved.salt?.status==='known'?saved.salt.value:null;
        const base={kind:saved.kind,name:saved.name,quantity:saved.kind==='dish'?1:(saved.amount??null),unit:saved.kind==='dish'?'皿':(saved.unit||''),salt,source:'登録ライブラリ',libraryId:saved.id,librarySnapshot:saved};
        const entry=saved.kind==='dish'?window.ChapiFoodRecipe.makeMealDish(saved):{...base,...nutrient};
-       values.entries.push(entry);drawEntries(values.entries.length-1);dialog.close();wrap.hidden=false;open.textContent='詳細を閉じる';open.setAttribute('aria-expanded','true');
+       values.entries.push(entry);drawEntries(values.entries.length-1);dialog.close();wrap.hidden=false;if(detailToggleButton){detailToggleButton.textContent='詳細を閉じる';detailToggleButton.setAttribute('aria-expanded','true');}
        // Take the user directly to the selected item's quantity, without opening the keyboard.
        const selectedRow=entriesRoot.querySelector('.stage33-item-details[data-entry-index="'+(values.entries.length-1)+'"]');
        if(selectedRow){selectedRow.open=true;selectedRow.scrollIntoView({block:'nearest'});}
@@ -828,7 +829,9 @@ function renderExtraMeals(root,includeFixed=false){
   tick.onchange=updatePreview;drawEntries();
   wrap.append(textInput('備考（任意）',values.note,v=>{values.note=v},true));
   const saveStructured=()=>{
-   if(includeFixed&&values.totalMode==='manual'){for(const k of ['kcal','p','f','c'])values.total[k]=draft.meals?.[slot.slotId]?.[k]??values.total[k];values.note=draft.meals?.[slot.slotId]?.note??values.note;}
+   // The structured editor owns its manual total. Do not overwrite it with a stale
+   // legacy projection when switching calculation modes.
+   if(includeFixed&&values.totalMode==='manual'){values.note=values.note??'';}
    if(includeFixed)values.skipped=!!draft.meals?.[slot.slotId]?.skipped;
    const isNum=v=>v===null||v===''||(Number.isFinite(Number(v))&&Number(v)>=0);
    if(!['kcal','p','f','c'].every(k=>isNum(values.total[k]))){notice('栄養値は0以上の有限数で入力してください');return}
@@ -888,7 +891,8 @@ function renderExtraMeals(root,includeFixed=false){
       // The projected auto total must never replace the independently kept manual draft.
       for(const k of ['kcal','p','f','c']){
        const restored=values.total[k]??'';
-       draft.meals[slot.slotId]={...(draft.meals[slot.slotId]||{}),[k]:restored};
+       // Mode switching is view-only until explicit Save. Mutating the legacy
+       // draft here caused unrelated day saves to trip the structured-data guard.
        const input=fixed.querySelector('#food_'+slot.slotId+'_'+k);
        if(input)input.value=restored;
       }
@@ -910,7 +914,7 @@ function renderExtraMeals(root,includeFixed=false){
        item.append(name,detail);
        item.setAttribute('aria-label',(entry.name||'名称未入力')+'を編集');
        item.addEventListener('click',()=>{
-        wrap.hidden=false;open.textContent='詳細を閉じる';open.setAttribute('aria-expanded','true');
+        wrap.hidden=false;if(detailToggleButton){detailToggleButton.textContent='詳細を閉じる';detailToggleButton.setAttribute('aria-expanded','true');}
         const rows=wrap.querySelectorAll('.stage33-item-details');
         const target=rows[index];
         if(target){target.open=true;target.scrollIntoView({block:'nearest',behavior:'smooth'})}
@@ -919,7 +923,7 @@ function renderExtraMeals(root,includeFixed=false){
        summary.append(item);
       });
      }refreshSummary();fixed.insertBefore(summary,fixed.querySelector('.food-grid'));fixed.insertBefore(adoptedTotal,fixed.querySelector('.food-grid'));const updateAdoptedTotal=()=>{if(values.totalMode==='auto'){const t=ChapiFoodTotalsBridge.adopted({totalMode:'auto',entries:values.entries,skipped:values.skipped});adoptedTotal.textContent='品目合計：'+(t.kcal===null?'不明':t.kcal+' kcal')+' / P '+(t.p??'不明')+' F '+(t.f??'不明')+' C '+(t.c??'不明');}else{adoptedTotal.textContent='合計手入力（品目は二重計上しません）';}};updateAdoptedTotal();
-    const actions=document.createElement('div');actions.className='stage33-actions';const addFromLibrary=button('＋ 料理・食材を追加',()=>{wrap.hidden=false;chooseFromLibrary()},'outline');const open=button('すべての品目を編集',()=>{wrap.hidden=!wrap.hidden;open.textContent=wrap.hidden?'すべての品目を編集':'詳細を閉じる';open.setAttribute('aria-expanded',String(!wrap.hidden))},'outline');open.setAttribute('aria-expanded','false');actions.append(addFromLibrary,open);fixed.insertBefore(actions,fixed.querySelector('.food-grid'));fixed.append(wrap);
+    const actions=document.createElement('div');actions.className='stage33-actions';const addFromLibrary=button('＋ 料理・食材を追加',()=>{wrap.hidden=false;chooseFromLibrary()},'outline');const open=button('すべての品目を編集',()=>{wrap.hidden=!wrap.hidden;open.textContent=wrap.hidden?'すべての品目を編集':'詳細を閉じる';open.setAttribute('aria-expanded',String(!wrap.hidden))},'outline');open.setAttribute('aria-expanded','false');detailToggleButton=open;actions.append(addFromLibrary,open);fixed.insertBefore(actions,fixed.querySelector('.food-grid'));fixed.append(wrap);
     const originalDraw=drawEntries;drawEntries=function(expandedIndex=-1){originalDraw(expandedIndex);refreshSummary();updateAdoptedTotal()};
     // Keep the compact card in sync with edits that do not redraw the detail editor.
     wrap.addEventListener('input',()=>{refreshSummary();updateAdoptedTotal()});
@@ -968,7 +972,7 @@ renderFood=function(){
   const meal=DS.snapshot(draft,Object.prototype.hasOwnProperty.call(store.days,current),store.foodSlotSettings||SL.defaults()).find(x=>x.slotId===id)?.meal;
   const total=meal?.totalMode==='auto'?ChapiFoodTotalsBridge.adopted(meal):null;
   const legacy=draft.meals?.[id];
-  const kcal=total?.kcal??legacy?.kcal;
+  const kcal=meal?(meal.totalMode==='auto'?total?.kcal:meal.manualTotal?.kcal):legacy?.kcal;
   const amount=(kcal!==''&&kcal!==null&&kcal!==undefined&&Number.isFinite(Number(kcal)))?`${Math.round(Number(kcal))} kcal`:'未記録';
   const count=Array.isArray(meal?.entries)?meal.entries.length:0;
   opener.textContent=`${label}　${meal?.skipped||legacy?.skipped?'食べなかった':amount}${count?' · '+count+'品':''}　${isOpen?'▲':'›'}`;

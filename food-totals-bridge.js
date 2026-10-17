@@ -21,18 +21,27 @@ function adopted(meal){if(!meal||typeof meal!=='object')throw Error('食事が�
 }
 function totals(day){
  if(day?.foodV2?.format==='chapi-food-day-2-draft'){
-  // Draft records retain legacy four-slot values as the authoritative source.
-  // Only newly created extra slots are summed from the snapshot.
-  const extras=day.foodV2.slots?.filter(s=>!['breakfast','lunch','dinner','snack'].includes(s.slotId)&&s.meal!=null)||[];
-  if(!extras.length)return null;
+  // Fixed slots with structured records use their adopted totals. Legacy-only
+  // slots retain legacy values. This is read-only; never reconcile on disk.
+  const slots=day.foodV2.slots;
+  if(!Array.isArray(slots))throw Error('食事枠が不正');
   const total=empty(),count=empty();let hasMark=false;
-  for(const id of ['breakfast','lunch','dinner','snack']){
-   const m=day.meals?.[id];if(!m)continue;
-   hasMark=true;
-   for(const k of FIELDS){const v=m.skipped===true?0:m[k];if(valid(v)){total[k]+=Number(v);count[k]++;}}
+  const fixed=['breakfast','lunch','dinner','snack'];
+  const selected=new Map();
+  for(const id of fixed){
+   const m=day.meals?.[id];
+   const structured=slots.find(s=>s?.slotId===id)?.meal;
+   if(structured&&structured.totalMode!=='legacy')selected.set(id,adopted(structured));
+   else if(m)selected.set(id,m.skipped===true?empty():nutrients(m));
+   if(structured||m)hasMark=true;
   }
-  for(const slot of extras){const v=adopted(slot.meal);hasMark=true;for(const k of FIELDS)if(valid(v[k])){total[k]+=v[k];count[k]++;}}
-  const complete=['breakfast','lunch','dinner'].every(id=>{const m=day.meals?.[id];return m&&(m.skipped===true||valid(m.kcal));});
+  for(const slot of slots){
+   if(!slot||typeof slot.slotId!=='string')throw Error('食事枠IDが不正');
+   if(fixed.includes(slot.slotId)||slot.meal==null)continue;
+   selected.set(slot.slotId,adopted(slot.meal));hasMark=true;
+  }
+  for(const values of selected.values())for(const k of FIELDS){const v=values[k];if(valid(v)){total[k]+=Number(v);count[k]++;}}
+  const complete=['breakfast','lunch','dinner'].every(id=>valid(selected.get(id)?.kcal));
   return {total,count,complete,hasMark};
  }
  if(day?.foodV2?.format!=='chapi-food-day-2')return null;
